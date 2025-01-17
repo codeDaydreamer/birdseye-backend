@@ -1,18 +1,18 @@
 package db
 
 import (
-    "database/sql"
     "fmt"
     "log"
     "os"
 
-    _ "github.com/go-sql-driver/mysql" // MySQL driver
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
 )
 
-// DB will hold the database connection
-var DB *sql.DB
+// DB will hold the GORM database connection
+var DB *gorm.DB
 
-// InitializeDB initializes the MySQL database connection
+// InitializeDB initializes the GORM database connection
 func InitializeDB() {
     // Get environment variables for database connection
     dbHost := os.Getenv("DB_HOST")
@@ -21,22 +21,22 @@ func InitializeDB() {
     dbName := os.Getenv("DB_NAME")
 
     // MySQL connection string: user:password@tcp(host:port)/dbname
-    connectionString := fmt.Sprintf("%s:%s@tcp(%s)/%s", dbUser, dbPassword, dbHost, dbName)
+    dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", dbUser, dbPassword, dbHost, dbName)
 
     var err error
-    DB, err = sql.Open("mysql", connectionString)
+    DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
     if err != nil {
-        log.Fatal("Failed to open database:", err)
+        log.Fatal("Failed to connect to database:", err)
     }
 
-    err = DB.Ping()
-    if err != nil {
-        log.Fatal("Failed to connect to the database:", err)
-    }
     fmt.Println("Successfully connected to MySQL!")
 }
 
-// CloseDB closes the database connection
+// CloseDB closes the GORM database connection
 func CloseDB() {
-    DB.Close()
+    sqlDB, err := DB.DB()
+    if err != nil {
+        log.Fatal("Failed to get SQL DB instance:", err)
+    }
+    sqlDB.Close()
 }

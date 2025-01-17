@@ -5,26 +5,24 @@ import (
 	"log"
 	"os"
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/api" // Import the api package
+	"birdseye-backend/pkg/api"
+	"birdseye-backend/pkg/models" // Import the models package
 	"github.com/joho/godotenv"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
 	"github.com/gorilla/websocket"
 	"net/http"
+	"birdseye-backend/pkg/broadcast" // Import the new broadcast package
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins (or modify based on your requirements)
+		// Allow connections from any origin (you can improve this by checking origin if needed)
 		return true
 	},
 }
 
-var clients = make(map[*websocket.Conn]bool) // Track connected clients
-
-// WebSocket handler for managing connections
 func handleWebSocket(c *gin.Context) {
-	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("Error upgrading to WebSocket:", err)
@@ -32,44 +30,10 @@ func handleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// Register the new client
-	clients[conn] = true
-	log.Println("New WebSocket client connected")
-
-	// Handle incoming messages
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Error reading message:", err)
-			delete(clients, conn)
-			break
-		}
-		// Broadcast the message to all connected clients
-		for client := range clients {
-			err := client.WriteMessage(websocket.TextMessage, message)
-			if err != nil {
-				log.Println("Error sending message to client:", err)
-				client.Close()
-				delete(clients, client)
-			}
-		}
-	}
-}
-
-// Broadcast function (optional: use this to push real-time updates)
-func broadcast(message string) {
-	for client := range clients {
-		err := client.WriteMessage(websocket.TextMessage, []byte(message))
-		if err != nil {
-			log.Println("Error broadcasting message:", err)
-			client.Close()
-			delete(clients, client)
-		}
-	}
+	broadcast.HandleWebSocket(conn) // Handle the WebSocket connection
 }
 
 func init() {
-	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
 	}
@@ -78,6 +42,17 @@ func init() {
 func main() {
 	// Initialize the database connection
 	db.InitializeDB()
+
+	// AutoMigrate all models
+	err := db.DB.AutoMigrate(
+		&models.InventoryItem{}, // Add all models here
+		// Add other models as needed, for example:
+		// &models.AnotherModel{},
+	)
+	if err != nil {
+		log.Fatalf("Error during auto migration: %v", err)
+	}
+	log.Println("Database migrated successfully")
 
 	// Initialize Gin router
 	router := gin.Default()
@@ -91,7 +66,8 @@ func main() {
 	}))
 
 	// Set up routes
-	api.SetupRoutes(router) // Use SetupRoutes function from api package
+	api.SetupInventoryRoutes(router) // Use SetupInventoryRoutes function from api package
+	api.SetupRoutes(router)
 
 	// WebSocket route for handling real-time communication
 	router.GET("/ws", handleWebSocket)
@@ -99,7 +75,7 @@ func main() {
 	// Start the server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8080" // Default to port 8080 if no port is specified in the environment
 	}
 
 	fmt.Printf("Starting Birdseye Backend on port %s...\n", port)
