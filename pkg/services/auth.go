@@ -1,180 +1,165 @@
 package services
 
 import (
-	"fmt"
-	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
-	"github.com/dgrijalva/jwt-go"
-	"time"
-	"strings"
 	"errors"
+	"fmt"
+	"time"
+	"birdseye-backend/pkg/db"
+	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
+	"github.com/golang-jwt/jwt/v4"
 	"gorm.io/gorm"
+	"log"
+	
+	
 )
 
-var jwtSecret = []byte("your_secret_key_here") // Secret key for signing JWT
-
-// RegisterUser registers a new user in the MySQL database and returns the user details
+// RegisterUser registers a new user in the database
 func RegisterUser(user *models.User) (*models.User, error) {
-	// Hash the user's password
-	err := user.HashPassword()
-	if err != nil {
-		return nil, fmt.Errorf("error hashing password: %v", err)
+	if err := user.HashPassword(); err != nil {
+		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
 
-	// Insert user into the database using GORM
-	result := db.DB.Create(user)
-	if result.Error != nil {
-		return nil, fmt.Errorf("error inserting user into database: %v", result.Error)
+	if result := db.DB.Create(user); result.Error != nil {
+		return nil, fmt.Errorf("error inserting user into database: %w", result.Error)
 	}
 
-	// Return the user object after registration
 	return user, nil
 }
 
-// LoginUser authenticates a user and returns a JWT and user details
+// LoginUser authenticates a user and returns a JWT token
 func LoginUser(email, password string) (string, *models.User, error) {
 	var user models.User
 
-	// Query user by email using GORM
-	result := db.DB.Where("email = ?", email).First(&user)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return "", nil, fmt.Errorf("user not found")
+	if err := db.DB.Where("email = ?", email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, errors.New("invalid credentials")
 		}
-		return "", nil, fmt.Errorf("error querying user: %v", result.Error)
+		return "", nil, fmt.Errorf("database error: %w", err)
 	}
 
-	// Check if the password is correct
 	if !user.CheckPassword(password) {
-		return "", nil, fmt.Errorf("incorrect password")
+		return "", nil, errors.New("invalid credentials")
 	}
 
-	// Generate JWT token
 	token, err := generateJWT(user)
 	if err != nil {
-		return "", nil, fmt.Errorf("error generating token: %v", err)
+		return "", nil, fmt.Errorf("error generating token: %w", err)
 	}
 
 	return token, &user, nil
 }
 
-// generateJWT generates a JWT token for the user
 func generateJWT(user models.User) (string, error) {
-	// Create a new JWT token
-	token := jwt.New(jwt.SigningMethodHS256)
+    log.Printf("generateJWT: Using JWTSecret - %s", middlewares.JWTSecret)
 
-	// Create claims (payload)
-	claims := token.Claims.(jwt.MapClaims)
-	claims["id"] = user.ID
-	claims["username"] = user.Username
-	claims["email"] = user.Email
-	claims["exp"] = time.Now().Add(time.Hour * 168).Unix() // Expiration time (7 days)
+    if middlewares.JWTSecret == "" {
+        return "", errors.New("JWT secret is not set")
+    }
 
-	// Sign the token with the secret key
-	tokenString, err := token.SignedString(jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("error signing the token: %v", err)
-	}
+    claims := jwt.MapClaims{
+        "id":       user.ID,
+        "username": user.Username,
+        "email":    user.Email,
+        "exp":      time.Now().Add(7 * 24 * time.Hour).Unix(), // 7 days expiry
+    }
 
-	return tokenString, nil
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(middlewares.JWTSecret))
 }
 
-// GetUserFromToken decodes the JWT token and retrieves the user
-func GetUserFromToken(tokenString string) (*models.User, error) {
-	// Remove "Bearer " prefix if it exists
-	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
-	// Parse and validate the token
+func GetUserFromToken(tokenString string) (*models.User, error) {
+	if middlewares.JWTSecret == "" {
+		return nil, errors.New("JWT secret is not set")
+	}
+
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Ensure the token is signed with the correct algorithm
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return jwtSecret, nil
+		return []byte(middlewares.JWTSecret), nil
 	})
 
 	if err != nil || !token.Valid {
 		return nil, errors.New("invalid token")
 	}
 
-	// Extract the user from the token
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, errors.New("could not parse token claims")
 	}
 
-	// Create a user model from the claims
-	user := &models.User{
-		ID:       int(claims["id"].(float64)), // Type assertion to get the user ID
-		Username: claims["username"].(string),
-		Email:    claims["email"].(string),
+	user := &models.User{}
+
+	if id, ok := claims["id"].(float64); ok {
+		user.ID = int(id)
+	}
+	if username, ok := claims["username"].(string); ok {
+		user.Username = username
+	}
+	if email, ok := claims["email"].(string); ok {
+		user.Email = email
 	}
 
 	return user, nil
 }
 
-// ChangePassword allows the user to change their password after verifying the current password
+// ChangePassword updates the user's password after verifying the current password
 func ChangePassword(userID int, currentPassword, newPassword string) error {
 	var user models.User
-	result := db.DB.First(&user, userID)
-	if result.Error != nil {
-		return fmt.Errorf("user not found: %v", result.Error)
+
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		return fmt.Errorf("user not found: %w", err)
 	}
 
-	// Check if the current password matches the stored password
 	if !user.CheckPassword(currentPassword) {
-		return fmt.Errorf("current password is incorrect")
+		return errors.New("current password is incorrect")
 	}
 
-	// Hash the new password
-	err := user.HashPassword()
-	if err != nil {
-		return fmt.Errorf("error hashing new password: %v", err)
+	user.Password = newPassword
+	if err := user.HashPassword(); err != nil {
+		return fmt.Errorf("error hashing new password: %w", err)
 	}
 
-	// Update the user's password in the database using GORM
-	result = db.DB.Save(&user)
-	if result.Error != nil {
-		return fmt.Errorf("error updating password in database: %v", result.Error)
+	if err := db.DB.Save(&user).Error; err != nil {
+		return fmt.Errorf("error updating password in database: %w", err)
 	}
 
 	return nil
 }
 
-// UpdateUserProfile updates the user's profile information
+// UpdateUserProfile updates user information
 func UpdateUserProfile(userID int, username, email, contact string) (*models.User, error) {
 	var user models.User
-	result := db.DB.First(&user, userID)
-	if result.Error != nil {
-		return nil, fmt.Errorf("user not found: %v", result.Error)
+
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Update the user's profile
 	user.Username = username
 	user.Email = email
 	user.Contact = contact
 
-	// Save the updated user in the database
-	result = db.DB.Save(&user)
-	if result.Error != nil {
-		return nil, fmt.Errorf("error updating user profile: %v", result.Error)
+	if err := db.DB.Save(&user).Error; err != nil {
+		return nil, fmt.Errorf("error updating user profile: %w", err)
 	}
 
 	return &user, nil
 }
 
-// UpdateUserProfilePicture updates the user's profile picture path
+// UpdateUserProfilePicture updates user's profile picture path
 func UpdateUserProfilePicture(userID int, profilePicturePath string) (*models.User, error) {
 	var user models.User
-	result := db.DB.First(&user, userID)
-	if result.Error != nil {
-		return nil, fmt.Errorf("user not found: %v", result.Error)
+
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
 	user.ProfilePicture = profilePicturePath
-	result = db.DB.Save(&user)
-	if result.Error != nil {
-		return nil, fmt.Errorf("error updating profile picture: %v", result.Error)
+
+	if err := db.DB.Save(&user).Error; err != nil {
+		return nil, fmt.Errorf("error updating profile picture: %w", err)
 	}
 
 	return &user, nil

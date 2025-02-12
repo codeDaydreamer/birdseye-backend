@@ -4,22 +4,41 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"birdseye-backend/pkg/db"
+
 	"birdseye-backend/pkg/api"
-	"birdseye-backend/pkg/models" // Import the models package
-	"github.com/joho/godotenv"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-contrib/cors"
-	"github.com/gorilla/websocket"
+	"birdseye-backend/pkg/broadcast"
+	"birdseye-backend/pkg/db"
+	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
+
 	"net/http"
-	"birdseye-backend/pkg/broadcast" // Import the new broadcast package
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow connections from any origin (you can improve this by checking origin if needed)
-		return true
+		return true // ⚠️ Allow all origins for WebSocket
 	},
+}
+
+// Custom middleware to log incoming requests and CORS details
+func logCORS(c *gin.Context) {
+	origin := c.Request.Header.Get("Origin")
+	method := c.Request.Method
+	fmt.Printf("Incoming request: Method=%s, Origin=%s\n", method, origin)
+
+	// Check if the origin is allowed
+	if origin == "http://localhost:5173" {
+		fmt.Println("Allowed origin:", origin)
+	} else {
+		fmt.Println("Disallowed origin:", origin)
+	}
+
+	c.Next() // Continue to the next handler
 }
 
 func handleWebSocket(c *gin.Context) {
@@ -28,56 +47,69 @@ func handleWebSocket(c *gin.Context) {
 		log.Println("Error upgrading to WebSocket:", err)
 		return
 	}
-	defer conn.Close()
-
-	broadcast.HandleWebSocket(conn) // Handle the WebSocket connection
-}
-
-func init() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
-	}
+	broadcast.HandleWebSocket(conn)
 }
 
 func main() {
-	// Initialize the database connection
+	// Load environment variables
+	err := godotenv.Load("/home/palaski-jr/birdseye-backend/.env")
+	if err != nil {
+		log.Println("Warning: No .env file found, using system environment variables.")
+	}
+
+	// Initialize the database
 	db.InitializeDB()
 
 	// AutoMigrate all models
-	err := db.DB.AutoMigrate(
-		&models.InventoryItem{}, // Add all models here
-		// Add other models as needed, for example:
-		// &models.AnotherModel{},
+	err = db.DB.AutoMigrate(
+		&models.InventoryItem{},
+		&models.User{},
+		&models.Expense{},
+		&models.Sale{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
 	}
 	log.Println("Database migrated successfully")
 
+	// Initialize authentication middleware
+	middlewares.InitAuthMiddleware()
+
 	// Initialize Gin router
 	router := gin.Default()
 
-	// Enable CORS middleware globally for all routes using gin-contrib/cors
+	// Enable CORS middleware for WebSockets
+	router.Use(logCORS) // Log the CORS details for every request
+
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"}, // replace with your frontend URL
+		AllowOrigins:     []string{"http://localhost:5173"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
 
-	// Set up routes
-	api.SetupInventoryRoutes(router) // Use SetupInventoryRoutes function from api package
-	api.SetupRoutes(router)
+	// Remove proxy restrictions
+	router.SetTrustedProxies(nil)
 
-	// WebSocket route for handling real-time communication
+	// Set up routes
+	api.SetupInventoryRoutes(router)
+	api.SetupRoutes(router)
+	api.SetupExpenseRoutes(router)
+	api.SetupSalesRoutes(router)
+
+	// WebSocket route
 	router.GET("/ws", handleWebSocket)
+
+	// Start WebSocket broadcasting
+	go broadcast.BroadcastMessages()
 
 	// Start the server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // Default to port 8080 if no port is specified in the environment
+		port = "8080"
 	}
 
 	fmt.Printf("Starting Birdseye Backend on port %s...\n", port)
-	log.Fatal(router.Run(":" + port)) // Start Gin server here
+	log.Fatal(router.Run(":" + port))
 }

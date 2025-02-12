@@ -1,44 +1,87 @@
 package broadcast
 
 import (
-	"github.com/gorilla/websocket"
+	"encoding/json"
 	"log"
+	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
-var clients = make(map[*websocket.Conn]bool) // Track connected clients
+var (
+	clients   = make(map[*websocket.Conn]bool) // Connected clients
+	broadcast = make(chan []byte)              // Channel for broadcasting messages
+	mutex     = sync.Mutex{}                    // Mutex to protect concurrent access
+)
 
-// WebSocket handler for managing connections
+// UpdateMessage represents a generic WebSocket update message
+type UpdateMessage struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+// HandleWebSocket manages WebSocket connections
 func HandleWebSocket(conn *websocket.Conn) {
+	mutex.Lock()
 	clients[conn] = true
+	mutex.Unlock()
+
 	log.Println("New WebSocket client connected")
 
+	defer func() {
+		mutex.Lock()
+		delete(clients, conn)
+		mutex.Unlock()
+		conn.Close()
+	}()
+
+	// Listen for disconnects
 	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Error reading message:", err)
-			delete(clients, conn)
+		if _, _, err := conn.ReadMessage(); err != nil {
+			log.Println("Client disconnected:", err)
 			break
 		}
-		// Broadcast the message to all connected clients
+	}
+}
+
+// BroadcastMessages continuously listens for messages to broadcast
+func BroadcastMessages() {
+	for {
+		message := <-broadcast
+		mutex.Lock()
 		for client := range clients {
-			err := client.WriteMessage(websocket.TextMessage, message)
-			if err != nil {
+			if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Println("Error sending message to client:", err)
 				client.Close()
 				delete(clients, client)
 			}
 		}
+		mutex.Unlock()
 	}
 }
 
-// Broadcast function for broadcasting a message to all clients
-func Broadcast(message string) {
-	for client := range clients {
-		err := client.WriteMessage(websocket.TextMessage, []byte(message))
-		if err != nil {
-			log.Println("Error broadcasting message:", err)
-			client.Close()
-			delete(clients, client)
-		}
+// SendExpenseUpdate broadcasts an expense update message
+func SendExpenseUpdate(eventType string, expense interface{}) {
+	sendUpdate(eventType, "expense", expense)
+}
+
+// SendSaleUpdate broadcasts a sales update message
+func SendSaleUpdate(eventType string, sale interface{}) {
+	sendUpdate(eventType, "sale", sale)
+}
+
+// Generic function to send an update message
+func sendUpdate(eventType, category string, data interface{}) {
+	msg, err := json.Marshal(UpdateMessage{
+		Type: eventType,
+		Data: map[string]interface{}{
+			"category": category,
+			"payload":  data,
+		},
+	})
+	if err != nil {
+		log.Println("Error marshalling WebSocket message:", err)
+		return
 	}
+	broadcast <- msg
 }
