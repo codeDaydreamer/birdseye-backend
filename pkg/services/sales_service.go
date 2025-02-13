@@ -24,6 +24,13 @@ func (s *SalesService) GetSalesByUser(userID uint) ([]models.Sale, error) {
 	return sales, err
 }
 
+// GetSalesByFlock retrieves sales related to a specific flock
+func (s *SalesService) GetSalesByFlock(flockID uint) ([]models.Sale, error) {
+	var sales []models.Sale
+	err := s.DB.Where("flock_id = ?", flockID).Find(&sales).Error
+	return sales, err
+}
+
 // AddSale adds a new sale and sends a WebSocket update
 func (s *SalesService) AddSale(sale *models.Sale) error {
 	if err := s.DB.Create(sale).Error; err != nil {

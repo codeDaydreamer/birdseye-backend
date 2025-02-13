@@ -62,10 +62,15 @@ func main() {
 
 	// AutoMigrate all models
 	err = db.DB.AutoMigrate(
-		&models.InventoryItem{},
+		&models.Flock{},
 		&models.User{},
+		&models.EggProduction{},
+		&models.InventoryItem{},
 		&models.Expense{},
 		&models.Sale{},
+		&models.Vaccination{},
+		
+		
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -97,6 +102,9 @@ func main() {
 	api.SetupRoutes(router)
 	api.SetupExpenseRoutes(router)
 	api.SetupSalesRoutes(router)
+	api.SetupEggProductionRoutes(router)
+	api.SetupFlockRoutes(router)
+	api.SetupVaccinationRoutes(router)
 
 	// WebSocket route
 	router.GET("/ws", handleWebSocket)

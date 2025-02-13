@@ -70,6 +70,21 @@ func SendSaleUpdate(eventType string, sale interface{}) {
 	sendUpdate(eventType, "sale", sale)
 }
 
+// SendEggProductionUpdate broadcasts an egg production update message
+func SendEggProductionUpdate(eventType string, eggProduction interface{}) {
+	sendUpdate(eventType, "egg_production", eggProduction)
+}
+
+// SendFlockUpdate broadcasts a flock update message
+func SendFlockUpdate(eventType string, flock interface{}) {
+	sendUpdate(eventType, "flock", flock)
+}
+
+// SendInventoryUpdate broadcasts an inventory update message
+func SendInventoryUpdate(eventType string, inventory interface{}) {
+	sendUpdate(eventType, "inventory", inventory)
+}
+
 // Generic function to send an update message
 func sendUpdate(eventType, category string, data interface{}) {
 	msg, err := json.Marshal(UpdateMessage{

@@ -10,8 +10,10 @@ import (
 type Sale struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID      uint      `json:"user_id" gorm:"index;not null"`
+	FlockID     uint      `json:"flock_id" gorm:"index;not null"` // Associate sales with a flock
 	RefNo       string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
 	Product     string    `json:"product" gorm:"type:varchar(100);not null"`
+	Category    string    `json:"category" gorm:"type:varchar(50);not null"` // e.g., "Eggs", "Feed", "Equipment"
 	Description string    `json:"description" gorm:"type:varchar(255);not null"`
 	Date        time.Time `json:"date" gorm:"not null"`
 	Amount      float64   `json:"amount" gorm:"not null"`
