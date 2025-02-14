@@ -28,6 +28,7 @@ func SetupEggProductionRoutes(r *gin.Engine) {
 }
 
 // GetEggProduction retrieves egg production records for the authenticated user
+// GetEggProduction retrieves egg production records for the authenticated user
 func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
 	log.Println("GET /egg-productions called")
 	userVal, exists := c.Get("user")
@@ -45,13 +46,18 @@ func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
 	}
 
 	var records []models.EggProduction
-	if err := db.DB.Where("user_id = ?", user.ID).Find(&records).Error; err != nil {
+	if err := db.DB.Table("egg_productions").
+		Select("egg_productions.*, flocks.name AS flock_name").
+		Joins("JOIN flocks ON flocks.id = egg_productions.flock_id").
+		Where("egg_productions.user_id = ?", user.ID).
+		Find(&records).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve records"})
 		return
 	}
 
 	c.JSON(http.StatusOK, records)
 }
+
 
 // AddEggProduction adds a new egg production record for the authenticated user
 func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {

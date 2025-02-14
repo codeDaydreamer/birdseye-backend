@@ -84,18 +84,21 @@ func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
 		return
 	}
 
-	var updatedData models.Vaccination
+	// Parse JSON into a map to check for missing fields
+	var updatedData map[string]interface{}
 	if err := c.ShouldBindJSON(&updatedData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Apply updates
-	vaccination.VaccineName = updatedData.VaccineName
-	vaccination.Date = updatedData.Date
-	vaccination.Status = updatedData.Status
+	// ✅ Remove "date" if it's not included in the request
+	query := db.DB.Model(&vaccination)
+	if _, exists := updatedData["date"]; !exists {
+		query = query.Omit("date")
+	}
 
-	if err := db.DB.Save(&vaccination).Error; err != nil {
+	// ✅ Only update provided fields
+	if err := query.Updates(updatedData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vaccination"})
 		return
 	}

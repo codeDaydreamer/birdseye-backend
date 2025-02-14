@@ -28,7 +28,7 @@ func SetupFlockRoutes(r *gin.Engine) {
 	}
 }
 
-// GetFlocks retrieves all flocks for the authenticated user
+// GetFlocks retrieves all flocks for the authenticated user, including related data
 func (h *FlockHandler) GetFlocks(c *gin.Context) {
 	userVal, exists := c.Get("user")
 	if !exists {
@@ -43,7 +43,11 @@ func (h *FlockHandler) GetFlocks(c *gin.Context) {
 	}
 
 	var flocks []models.Flock
-	if err := db.DB.Where("user_id = ?", user.ID).Find(&flocks).Error; err != nil {
+	if err := db.DB.
+		Preload("EggProductions").
+		Preload("VaccinationSchedule").
+		Where("user_id = ?", user.ID).
+		Find(&flocks).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve flocks"})
 		return
 	}
@@ -51,7 +55,8 @@ func (h *FlockHandler) GetFlocks(c *gin.Context) {
 	c.JSON(http.StatusOK, flocks)
 }
 
-// GetFlock retrieves a single flock for the authenticated user
+
+// GetFlock retrieves a single flock with related data
 func (h *FlockHandler) GetFlock(c *gin.Context) {
 	userVal, exists := c.Get("user")
 	if !exists {
@@ -72,13 +77,18 @@ func (h *FlockHandler) GetFlock(c *gin.Context) {
 	}
 
 	var flock models.Flock
-	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&flock).Error; err != nil {
+	if err := db.DB.
+		Preload("EggProductions").
+		Preload("VaccinationSchedule").
+		Where("id = ? AND user_id = ?", id, user.ID).
+		First(&flock).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Flock not found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, flock)
 }
+
 
 // AddFlock adds a new flock for the authenticated user
 func (h *FlockHandler) AddFlock(c *gin.Context) {
@@ -100,8 +110,28 @@ func (h *FlockHandler) AddFlock(c *gin.Context) {
 		return
 	}
 
-	// Assign the authenticated user's ID to the flock
+	// Assign authenticated user's ID
 	flock.UserID = uint(user.ID)
+
+	// Initialize empty slices if not provided
+	if flock.EggProduction == nil {
+		flock.EggProduction = []int{}
+	}
+	if flock.MortalityRateData == nil {
+		flock.MortalityRateData = []int{}
+	}
+	if flock.FeedConsumption == nil {
+		flock.FeedConsumption = []int{}
+	}
+	if flock.SalesData == nil {
+		flock.SalesData = []int{}
+	}
+	if flock.FeedQualityList == nil {
+		flock.FeedQualityList = []models.FeedQuality{}
+	}
+	if flock.VaccinationSchedule == nil {
+		flock.VaccinationSchedule = []models.Vaccination{}
+	}
 
 	if err := db.DB.Create(&flock).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create flock"})
@@ -137,12 +167,14 @@ func (h *FlockHandler) UpdateFlock(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(&flock); err != nil {
+	var updateData map[string]interface{}
+	if err := c.ShouldBindJSON(&updateData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := db.DB.Save(&flock).Error; err != nil {
+	// Only update the fields that exist in updateData
+	if err := db.DB.Model(&flock).Updates(updateData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update flock"})
 		return
 	}
