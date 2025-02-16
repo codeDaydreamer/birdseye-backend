@@ -7,21 +7,27 @@ import (
 	"gorm.io/gorm"
 	"fmt"
 	"sort"
+	"log"
+	"encoding/json"
 )
 
 type FlockService struct {
 	DB                  *gorm.DB
 	EggProductionService *EggProductionService
 	SalesService        *SalesService
+	ExpenseService      *ExpenseService // ✅ Fixed Naming
 }
 
-func NewFlockService(db *gorm.DB, eggService *EggProductionService, salesService *SalesService) *FlockService {
+// NewFlockService initializes a new service instance
+func NewFlockService(db *gorm.DB, eggService *EggProductionService, salesService *SalesService, expenseService *ExpenseService) *FlockService {
 	return &FlockService{
 		DB:                  db,
 		EggProductionService: eggService,
 		SalesService:        salesService,
+		ExpenseService:      expenseService, // ✅ Fixed Naming
 	}
 }
+
 
 // GetFlocksByUser retrieves flock records for a specific user
 func (s *FlockService) GetFlocksByUser(userID uint) ([]models.Flock, error) {
@@ -40,25 +46,44 @@ func (s *FlockService) GetFlockByID(flockID, userID uint) (*models.Flock, error)
 	return &flock, nil
 }
 
-// AddFlock adds a new flock, calculates required fields, and sends a WebSocket update
 func (s *FlockService) AddFlock(flock *models.Flock) error {
-	s.CalculateFlockMetrics(flock)
-	if err := s.DB.Create(flock).Error; err != nil {
-		return err
-	}
-	broadcast.SendFlockUpdate("flock_added", *flock)
-	return nil
+    fmt.Printf("Adding new flock: %+v\n", flock)
+
+    // Compute initial metrics before saving
+    s.CalculateFlockMetrics(flock, flock.UserID) // ✅ Pass userID
+    fmt.Printf("Metrics after calculation: %+v\n", flock)
+
+    // Save to database
+    if err := s.DB.Create(flock).Error; err != nil {
+        fmt.Printf("Error creating flock: %v\n", err)
+        return err
+    }
+
+    fmt.Printf("Flock successfully added with ID %d\n", flock.ID)
+    
+    // Send real-time update
+    broadcast.SendFlockUpdate("flock_added", *flock)
+    return nil
 }
 
-// UpdateFlock updates an existing flock, recalculates fields, and sends a WebSocket update
+
+
 func (s *FlockService) UpdateFlock(flock *models.Flock) error {
-	s.CalculateFlockMetrics(flock)
-	if err := s.DB.Save(flock).Error; err != nil {
-		return err
-	}
-	broadcast.SendFlockUpdate("flock_updated", *flock)
-	return nil
+    log.Printf("📢 UpdateFlock called for Flock ID: %d\n", flock.ID)
+    
+    s.CalculateFlockMetrics(flock, flock.UserID) // ✅ Pass userID
+
+    if err := s.DB.Save(flock).Error; err != nil {
+        log.Printf("❌ Error saving flock ID %d: %v\n", flock.ID, err)
+        return err
+    }
+    
+    broadcast.SendFlockUpdate("flock_updated", *flock)
+    return nil
 }
+
+
+
 
 // DeleteFlock removes a flock record by ID and sends a WebSocket update
 func (s *FlockService) DeleteFlock(flockID, userID uint) error {
@@ -75,51 +100,63 @@ func (s *FlockService) DeleteFlock(flockID, userID uint) error {
 	return nil
 }
 
-// ------------------------ 🔹 Calculation Functions 🔹 ------------------------
-// CalculateFlockMetrics computes all derived fields and saves them to the DB
-func (s *FlockService) CalculateFlockMetrics(flock *models.Flock) {
-	fmt.Printf("Calculating metrics for Flock ID %d...\n", flock.ID)
+func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint) {
+    log.Printf("Calculating metrics for Flock ID %d...", flock.ID)
 
-	s.CalculateMortalityRate(flock)
-	s.CalculateFeedIntake(flock)
-	s.CalculateRevenueAndExpenses(flock)
-	s.AggregateEggProduction(flock)
-	s.CalculateHealth(flock)
+    s.CalculateMortalityRate(flock)
+    s.CalculateFeedIntake(flock)
+    s.CalculateRevenueAndExpenses(flock, userID) // ✅ Now userID is passed correctly
+    s.AggregateEggProduction(flock)
 
-	// Persist updated fields to the database
-	err := s.DB.Model(&flock).Updates(map[string]interface{}{
-		"mortality_rate":         flock.MortalityRate,
-		"feed_intake":            flock.FeedIntake,
-		"revenue":                flock.Revenue,
-		"expenses":               flock.Expenses,
-		"health":                 flock.Health,
-		"egg_production_7_days":  flock.EggProduction7Days,
-		"egg_production_4_weeks": flock.EggProduction4Weeks,
-	}).Error
+    log.Printf("Metrics before saving: %+v\n", flock)
 
-	if err != nil {
-		fmt.Printf("Error updating flock metrics for flock ID %d: %v\n", flock.ID, err)
-	} else {
-		fmt.Printf("Successfully updated flock metrics for Flock ID %d\n", flock.ID)
-	}
+    err := s.DB.Model(&models.Flock{}).Where("id = ?", flock.ID).
+        Select("*").Updates(map[string]interface{}{
+        "mortality_rate":         flock.MortalityRate,
+        "feed_intake":            flock.FeedIntake,
+        "revenue":                flock.Revenue,
+        "expenses":               flock.Expenses,
+        "health":                 flock.Health,
+        "egg_production_7_days":  flock.EggProduction7Days,
+        "egg_production_4_weeks": flock.EggProduction4Weeks,
+    }).Error
+
+    if err != nil {
+        log.Printf("❌ Error updating flock metrics for flock ID %d: %v\n", flock.ID, err)
+    } else {
+        log.Printf("✅ Successfully updated flock metrics for Flock ID %d\n", flock.ID)
+    }
 }
+
+
 
 // 🔹 Mortality rate calculation (Stores in DB)
 func (s *FlockService) CalculateMortalityRate(flock *models.Flock) {
-	totalDeaths := 0
-	for _, deaths := range flock.MortalityRateData {
-		totalDeaths += deaths
-	}
-
+	// Ensure InitialBirdCount is greater than zero to avoid division by zero
 	if flock.InitialBirdCount > 0 {
+		// Calculate total deaths using the difference between InitialBirdCount and current BirdCount
+		totalDeaths := flock.InitialBirdCount - flock.BirdCount
 		flock.MortalityRate = (float64(totalDeaths) / float64(flock.InitialBirdCount)) * 100
 	} else {
 		flock.MortalityRate = 0
 	}
 
-	fmt.Printf("Flock ID %d - Mortality Rate Calculated: %.2f%% (Total Deaths: %d, Initial Count: %d)\n",
-		flock.ID, flock.MortalityRate, totalDeaths, flock.InitialBirdCount)
+	fmt.Printf("Flock ID %d - Mortality Rate Calculated: %.2f%% (Initial Count: %d, Current Count: %d)\n",
+		flock.ID, flock.MortalityRate, flock.InitialBirdCount, flock.BirdCount)
+
+	// 🔥 Save updated mortality rate in the database
+	err := s.DB.Model(&models.Flock{}).
+		Where("id = ?", flock.ID).
+		Update("mortality_rate", flock.MortalityRate).Error
+
+	if err != nil {
+		fmt.Printf("❌ Error updating mortality rate for flock ID %d: %v\n", flock.ID, err)
+	} else {
+		fmt.Printf("✅ Successfully stored mortality rate for flock ID %d\n", flock.ID)
+	}
 }
+
+
 
 // 🔹 Calculate daily feed intake (Stores in DB)
 func (s *FlockService) CalculateFeedIntake(flock *models.Flock) {
@@ -128,7 +165,7 @@ func (s *FlockService) CalculateFeedIntake(flock *models.Flock) {
 
 	if days > 0 {
 		for _, feed := range flock.FeedConsumption {
-			totalFeed += feed
+			totalFeed += int(feed)
 		}
 		flock.FeedIntake = float64(totalFeed) / float64(days) // Average intake per day
 	} else {
@@ -138,47 +175,57 @@ func (s *FlockService) CalculateFeedIntake(flock *models.Flock) {
 	fmt.Printf("Flock ID %d - Feed Intake Calculated: %.2f (Total Feed: %d, Days: %d)\n",
 		flock.ID, flock.FeedIntake, totalFeed, days)
 }
+func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID uint) {
+    var totalRevenue, totalEggSales, totalExpenses float64
 
-// 🔹 Compute revenue and expenses (Stores in DB)
-func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock) {
-	totalRevenue := 0.0
-	totalExpenses := flock.Expenses
+    // Fetch all sales related to the flock for the specific user
+    sales, err := s.SalesService.GetSalesByFlock(flock.ID, userID)
+    if err != nil {
+        fmt.Println("Error fetching flock sales:", err)
+        return
+    }
 
-	// Fetch related egg sales data
-	eggSales, err := s.EggProductionService.GetEggProductionByUser(flock.UserID)
-	if err != nil {
-		fmt.Println("Error fetching egg sales:", err)
-		return
-	}
+    // Filter and sum revenue from egg sales
+    for _, sale := range sales {
+        if sale.Category == "Egg Sales" {
+            totalEggSales += sale.Amount
+        }
+        totalRevenue += sale.Amount
+    }
 
-	for _, sale := range eggSales {
-		if sale.FlockID == flock.ID {
-			totalRevenue += float64(sale.EggsCollected) * sale.PricePerUnit
-		}
-	}
+    // Fetch all expenses related to the flock (without userID)
+    expenses, err := s.ExpenseService.GetExpensesByFlock(flock.ID)
+    if err != nil {
+        fmt.Println("Error fetching flock expenses:", err)
+        return
+    }
 
-	// Fetch related flock sales data
-	sales, err := s.SalesService.GetSalesByFlock(flock.ID)
-	if err != nil {
-		fmt.Println("Error fetching flock sales:", err)
-		return
-	}
+    // Sum up all expenses
+    for _, expense := range expenses {
+        totalExpenses += expense.Amount
+    }
 
-	for _, sale := range sales {
-		totalRevenue += sale.Amount
-	}
+    // Compute net revenue (profit/loss)
+    netRevenue := totalRevenue - totalExpenses
 
-	flock.Revenue = totalRevenue - totalExpenses
+    // Update the flock record
+    flock.Revenue = netRevenue
+    flock.Expenses = totalExpenses
 
-	fmt.Printf("Flock ID %d - Revenue & Expenses Calculated: Revenue: %.2f, Expenses: %.2f, Net Revenue: %.2f\n",
-		flock.ID, totalRevenue, totalExpenses, flock.Revenue)
+    // Save updates to the database
+    if err := s.DB.Save(&flock).Error; err != nil {
+        fmt.Println("Error updating flock revenue and expenses:", err)
+    }
+
+    fmt.Printf("Flock ID %d - Revenue: %.2f, Egg Sales: %.2f, Expenses: %.2f, Net Revenue: %.2f\n",
+        flock.ID, totalRevenue, totalEggSales, totalExpenses, netRevenue)
 }
 
 // 🔹 Aggregate Egg Production for 7 Days and 4 Weeks (Stores in DB)
 func (s *FlockService) AggregateEggProduction(flock *models.Flock) {
 	eggProductions, err := s.EggProductionService.GetEggProductionByUser(flock.UserID)
 	if err != nil {
-		fmt.Println("Error fetching egg production data:", err)
+		fmt.Println("❌ Error fetching egg production data:", err)
 		return
 	}
 
@@ -199,45 +246,36 @@ func (s *FlockService) AggregateEggProduction(flock *models.Flock) {
 		eggCounts = append(eggCounts, egg.EggsCollected)
 	}
 
-	// Compute last 7 days
-	if len(eggCounts) >= 7 {
-		flock.EggProduction7Days = eggCounts[:7]
-	} else {
-		flock.EggProduction7Days = eggCounts
+	// Ensure eggCounts is not nil (though in Go, slices are never nil after initialization)
+	if eggCounts == nil {
+		eggCounts = []int{}
 	}
+
+	// Compute last 7 days
+	var jsonData7 []byte
+	if len(eggCounts) >= 7 {
+		jsonData7, err = json.Marshal(eggCounts[:7])
+	} else {
+		jsonData7, err = json.Marshal(eggCounts)
+	}
+	if err != nil {
+		fmt.Printf("❌ Error marshaling egg production (7 days) for Flock ID %d: %v\n", flock.ID, err)
+		jsonData7 = []byte("[]") // Fallback to an empty array
+	}
+	flock.EggProduction7Days = jsonData7
 
 	// Compute last 4 weeks (28 days)
+	var jsonData28 []byte
 	if len(eggCounts) >= 28 {
-		flock.EggProduction4Weeks = eggCounts[:28]
+		jsonData28, err = json.Marshal(eggCounts[:28])
 	} else {
-		flock.EggProduction4Weeks = eggCounts
+		jsonData28, err = json.Marshal(eggCounts)
 	}
-
-	fmt.Printf("Flock ID %d - Egg Production Calculated: Last 7 Days: %v, Last 4 Weeks: %v\n",
-		flock.ID, flock.EggProduction7Days, flock.EggProduction4Weeks)
-}
-
-// 🔹 Health Calculation Based on Mortality and Feed Intake (Stores in DB)
-func (s *FlockService) CalculateHealth(flock *models.Flock) {
-	health := 100.0
-
-	// Mortality impact
-	health -= flock.MortalityRate * 2 
-
-	// Feed intake impact
-	averageIntake := 100.0 
-	if flock.FeedIntake < averageIntake {
-		health -= (averageIntake - flock.FeedIntake) * 0.5
+	if err != nil {
+		fmt.Printf("❌ Error marshaling egg production (28 days) for Flock ID %d: %v\n", flock.ID, err)
+		jsonData28 = []byte("[]") // Fallback to an empty array
 	}
+	flock.EggProduction4Weeks = jsonData28
 
-	if health < 0 {
-		health = 0
-	} else if health > 100 {
-		health = 100
-	}
-
-	flock.Health = health
-
-	fmt.Printf("Flock ID %d - Health Calculated: %.2f (Mortality Rate: %.2f, Feed Intake: %.2f)\n",
-		flock.ID, flock.Health, flock.MortalityRate, flock.FeedIntake)
+	fmt.Printf("✅ Egg production data updated for Flock ID %d\n", flock.ID)
 }

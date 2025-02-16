@@ -10,16 +10,20 @@ import (
 type Sale struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID      uint      `json:"user_id" gorm:"index;not null"`
-	FlockID     uint      `json:"flock_id" gorm:"index;not null"` // Associate sales with a flock
+	FlockID     uint      `json:"flock_id" gorm:"index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // ✅ Add constraint
 	RefNo       string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
 	Product     string    `json:"product" gorm:"type:varchar(100);not null"`
-	Category    string    `json:"category" gorm:"type:varchar(50);not null"` // e.g., "Eggs", "Feed", "Equipment"
+	Category    string    `json:"category" gorm:"type:varchar(50);not null"` 
 	Description string    `json:"description" gorm:"type:varchar(255);not null"`
 	Date        time.Time `json:"date" gorm:"not null"`
 	Amount      float64   `json:"amount" gorm:"not null"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+
+	// Relationship
+	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"` // ✅ Ensure GORM recognizes the relationship
 }
+
 
 // GenerateRefNo generates a unique reference number for sales
 func GenerateRefNo(userID uint) string {

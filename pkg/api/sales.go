@@ -15,12 +15,12 @@ type SalesHandler struct{}
 
 // SetupSalesRoutes sets up the sales API routes with authentication middleware
 func SetupSalesRoutes(r *gin.Engine) {
-	handler := &SalesHandler{} // Create an instance of SalesHandler
+	handler := &SalesHandler{}
 
-	// Apply authentication middleware to all sales routes
 	salesRoutes := r.Group("/sales").Use(middlewares.AuthMiddleware())
 	{
 		salesRoutes.GET("/", handler.GetSales)
+		salesRoutes.GET("/flock/:flockID", handler.GetSalesByFlock) // New route ✅
 		salesRoutes.POST("/", handler.AddSale)
 		salesRoutes.PUT("/:id", handler.UpdateSale)
 		salesRoutes.DELETE("/:id", handler.DeleteSale)
@@ -47,6 +47,34 @@ func (h *SalesHandler) GetSales(c *gin.Context) {
 	var sales []models.Sale
 	if err := db.DB.Where("user_id = ?", user.ID).Find(&sales).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sales"})
+		return
+	}
+
+	c.JSON(http.StatusOK, sales)
+}
+// GetSalesByFlock retrieves sales records for a specific flock
+func (h *SalesHandler) GetSalesByFlock(c *gin.Context) {
+	log.Println("GET /sales/flock/:flockID called")
+
+	userVal, exists := c.Get("user")
+	if !exists {
+		log.Println("GetSalesByFlock: User not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	user, ok := userVal.(*models.User)
+	if !ok {
+		log.Println("GetSalesByFlock: User data type mismatch")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		return
+	}
+
+	flockID := c.Param("flockID")
+
+	var sales []models.Sale
+	if err := db.DB.Where("flock_id = ? AND user_id = ?", flockID, user.ID).Find(&sales).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sales for flock"})
 		return
 	}
 

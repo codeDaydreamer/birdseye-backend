@@ -5,6 +5,7 @@ import (
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
+	"log"
 )
 
 // ExpenseService provides methods to manage expenses
@@ -22,6 +23,17 @@ func (s *ExpenseService) GetExpensesByUser(userID uint) ([]models.Expense, error
 	var expenses []models.Expense
 	err := s.DB.Where("user_id = ?", userID).Find(&expenses).Error
 	return expenses, err
+}
+
+// GetExpensesByFlock retrieves expenses related to a specific flock
+func (s *ExpenseService) GetExpensesByFlock(flockID uint) ([]models.Expense, error) {
+	var expenses []models.Expense
+	err := s.DB.Where("flock_id = ?", flockID).Find(&expenses).Error
+	if err != nil {
+		log.Printf("❌ Error fetching expenses for flock %d: %v", flockID, err)
+		return nil, err
+	}
+	return expenses, nil
 }
 
 // AddExpense adds a new expense and sends a WebSocket update
