@@ -2,17 +2,42 @@ package models
 
 import (
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
+	
 )
 
+// BillingInfo represents user billing details
+type BillingInfo struct {
+	ID         int    `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     int    `gorm:"uniqueIndex" json:"user_id"`
+	CardNumber string `json:"card_number"`
+	ExpiryDate string `json:"expiry_date"`
+	CVV        string `json:"cvv"`
+	Address    string `json:"address"`
+	City       string `json:"city"`
+	Country    string `json:"country"`
+	ZipCode    string `json:"zip_code"`
+}
+
+// Subscription represents user subscription details
+type Subscription struct {
+	ID           int    `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID       int    `gorm:"uniqueIndex" json:"user_id"`
+	Plan         string `json:"plan"`
+	Status       string `json:"status"`
+	ExpiryDate   string `json:"expiry_date"`
+	PaymentMethod string `json:"payment_method"`
+}
+
+// User represents a system user
 type User struct {
-	ID             int    `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username       string `gorm:"unique;not null" json:"username"`
-	Email          string `gorm:"unique;not null" json:"email"`
-	Password       string `json:"password"`
-	ProfilePicture string `json:"profile_picture"`
-	Contact        string `json:"contact"`
-	// Add other fields as necessary
+	ID             uint          `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username       string       `gorm:"unique;not null" json:"username"`
+	Email          string       `gorm:"unique;not null" json:"email"`
+	Password       string       `json:"password"`
+	ProfilePicture string       `json:"profile_picture"`
+	Contact        string       `json:"contact"`
+	Subscription   Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
+	BillingInfo    BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
 
 // HashPassword hashes the password using bcrypt
@@ -31,11 +56,4 @@ func (u *User) CheckPassword(password string) bool {
 	return err == nil
 }
 
-// AutoMigrate will automatically create or update the table structure in the database
-func AutoMigrate(db *gorm.DB) {
-	// This will create the table if it doesn't exist or update it if the schema changes
-	err := db.AutoMigrate(&User{})
-	if err != nil {
-		panic("Failed to migrate User model: " + err.Error())
-	}
-}
+

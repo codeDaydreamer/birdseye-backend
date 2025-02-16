@@ -51,6 +51,8 @@ func handleWebSocket(c *gin.Context) {
 }
 
 func main() {
+
+	
 	// Load environment variables
 	err := godotenv.Load("/home/palaski-jr/birdseye-backend/.env")
 	if err != nil {
@@ -69,6 +71,8 @@ func main() {
 		&models.Expense{},
 		&models.Sale{},
 		&models.Vaccination{},
+		&models.Subscription{},
+		&models.BillingInfo{},
 		
 		
 	)
@@ -97,6 +101,10 @@ func main() {
 	// Remove proxy restrictions
 	router.SetTrustedProxies(nil)
 
+		// Serve uploaded profile pictures
+		router.Static("/birdseye_backend/uploads", "./uploads")
+
+
 	// Set up routes
 	api.SetupInventoryRoutes(router)
 	api.SetupRoutes(router)
@@ -105,6 +113,8 @@ func main() {
 	api.SetupEggProductionRoutes(router)
 	api.SetupFlockRoutes(router)
 	api.SetupVaccinationRoutes(router)
+	api.SetupBillingRoutes(router)
+	api.SetupSubscriptionRoutes(router)
 
 	// WebSocket route
 	router.GET("/ws", handleWebSocket)

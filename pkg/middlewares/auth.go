@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
-
+    "fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 )
 
@@ -23,26 +24,35 @@ func InitAuthMiddleware() {
 	}
 }
 
-// AuthMiddleware ensures requests are authenticated using JWT
+// AuthMiddleware is used to authenticate requests using JWT tokens
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
+		tokenString := c.GetHeader("Authorization")
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
 			c.Abort()
 			return
 		}
 
-		user, err := GetUserFromToken(token)
+		// Extract user from the token using GetUserFromToken
+		user, err := GetUserFromToken(tokenString)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
 			return
 		}
 
-		// Store the authenticated user ID in the context
-		c.Set("user_id", user.ID) // Ensures it's an integer
-		c.Set("user", user)        // Stores full user struct if needed
+		// Fetch fresh user data from the database to ensure we have up-to-date information
+		freshUser, err := getUserByID(user.ID) // Directly using getUserByID function
+
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+			c.Abort()
+			return
+		}
+
+		// Set the fresh user data in the context
+		c.Set("user", freshUser)
 		c.Next()
 	}
 }
@@ -82,7 +92,8 @@ func GetUserFromToken(tokenString string) (*models.User, error) {
 
 	// Extract ID safely as integer
 	if id, ok := claims["id"].(float64); ok {
-		user.ID = int(id)
+		user.ID = uint(id)
+
 	} else {
 		return nil, errors.New("invalid token claims")
 	}
@@ -98,4 +109,13 @@ func GetUserFromToken(tokenString string) (*models.User, error) {
 	}
 
 	return user, nil
+}
+
+// getUserByID retrieves a user from the database by their ID (avoiding the services package)
+func getUserByID(userID uint) (*models.User, error) {
+	var user models.User
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("user with ID %d not found", userID)
+	}
+	return &user, nil
 }
