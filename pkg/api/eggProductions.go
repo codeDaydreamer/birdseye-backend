@@ -15,9 +15,8 @@ type EggProductionHandler struct{}
 
 // SetupEggProductionRoutes sets up the API routes with authentication middleware
 func SetupEggProductionRoutes(r *gin.Engine) {
-	handler := &EggProductionHandler{} // Create an instance of EggProductionHandler
+	handler := &EggProductionHandler{}
 
-	// Apply authentication middleware to all routes
 	routes := r.Group("/egg-productions").Use(middlewares.AuthMiddleware())
 	{
 		routes.GET("/", handler.GetEggProduction)
@@ -28,20 +27,19 @@ func SetupEggProductionRoutes(r *gin.Engine) {
 }
 
 // GetEggProduction retrieves egg production records for the authenticated user
-// GetEggProduction retrieves egg production records for the authenticated user
 func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
-	log.Println("GET /egg-productions called")
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id")  // Get user ID from context
 	if !exists {
 		log.Println("GetEggProduction: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("GetEggProduction: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		log.Println("GetEggProduction: Error fetching user from DB:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -51,6 +49,7 @@ func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
 		Joins("JOIN flocks ON flocks.id = egg_productions.flock_id").
 		Where("egg_productions.user_id = ?", user.ID).
 		Find(&records).Error; err != nil {
+		log.Println("GetEggProduction: Error retrieving records:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve records"})
 		return
 	}
@@ -58,18 +57,18 @@ func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
 	c.JSON(http.StatusOK, records)
 }
 
-
 // AddEggProduction adds a new egg production record for the authenticated user
 func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -79,10 +78,11 @@ func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
 		return
 	}
 
-	// Assign the authenticated user's ID to the record
-	record.UserID = uint(userID)
+	// Assign authenticated user's ID to the record
+	record.UserID = user.ID
 
 	if err := db.DB.Create(&record).Error; err != nil {
+		log.Println("AddEggProduction: Error creating record:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create record"})
 		return
 	}
@@ -92,17 +92,16 @@ func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
 
 // UpdateEggProduction updates an existing record for the authenticated user
 func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
-		log.Println("UpdateEggProduction: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("UpdateEggProduction: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -110,6 +109,7 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 
 	var record models.EggProduction
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&record).Error; err != nil {
+		log.Println("UpdateEggProduction: Record not found or unauthorized")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
 		return
 	}
@@ -120,6 +120,7 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 	}
 
 	if err := db.DB.Save(&record).Error; err != nil {
+		log.Println("UpdateEggProduction: Error updating record:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update record"})
 		return
 	}
@@ -129,17 +130,16 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 
 // DeleteEggProduction deletes a record for the authenticated user
 func (h *EggProductionHandler) DeleteEggProduction(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
-		log.Println("DeleteEggProduction: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("DeleteEggProduction: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -147,11 +147,13 @@ func (h *EggProductionHandler) DeleteEggProduction(c *gin.Context) {
 
 	var record models.EggProduction
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&record).Error; err != nil {
+		log.Println("DeleteEggProduction: Record not found or unauthorized")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
 		return
 	}
 
 	if err := db.DB.Delete(&record).Error; err != nil {
+		log.Println("DeleteEggProduction: Error deleting record:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete record"})
 		return
 	}

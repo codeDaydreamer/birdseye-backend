@@ -1,5 +1,4 @@
 package api
-
 import (
 	"github.com/gin-gonic/gin"
 	"birdseye-backend/pkg/services"
@@ -8,8 +7,8 @@ import (
 	"net/http"
 	"log"
 	"os"
+	
 )
-
 // SetupRoutes sets up all the API routes
 func SetupRoutes(router *gin.Engine) {
 	auth := router.Group("/auth")
@@ -30,6 +29,8 @@ func SetupRoutes(router *gin.Engine) {
 				return
 			}
 
+			log.Printf("Registered User: %+v", registeredUser)
+
 			c.JSON(http.StatusOK, gin.H{
 				"message": "Registration successful. Redirecting to homepage.",
 				"user":    registeredUser,
@@ -38,20 +39,22 @@ func SetupRoutes(router *gin.Engine) {
 
 		auth.POST("/login", func(c *gin.Context) {
 			var loginDetails struct {
-				Email    string `json:"email"`
-				Password string `json:"password"`
+				Identifier string `json:"identifier"` // Can be email or username
+				Password   string `json:"password"`
 			}
-
 			if err := c.ShouldBindJSON(&loginDetails); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 				return
 			}
 
-			token, user, err := services.LoginUser(loginDetails.Email, loginDetails.Password)
+			token, user, err := services.LoginUser(loginDetails.Identifier, loginDetails.Password)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 				return
 			}
+
+			log.Printf("Generated Token: %s", token)
+			log.Printf("Logged-in User: %+v", user)
 
 			c.JSON(http.StatusOK, gin.H{
 				"token": token,
@@ -64,36 +67,49 @@ func SetupRoutes(router *gin.Engine) {
 		protected.Use(middlewares.AuthMiddleware()) // Apply auth middleware only to these routes
 
 		// GET /me: Return the authenticated user's details
-		protected.GET("/me", func(c *gin.Context) {
-			user, exists := c.Get("user")
+protected.GET("/me", func(c *gin.Context) {
+    // Get the user ID from the context
+    userID, exists := c.Get("user_id")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+        return
+    }
+
+    // Fetch the user from the database using the user ID
+    user, err := services.GetUserByID(userID.(uint))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching user from database"})
+        return
+    }
+
+    // Log the full user data
+    log.Printf("User data fetched from database: %+v", user)
+
+    // Return the sanitized user data
+    sanitizedUser := gin.H{
+        "id":             user.ID,
+        "username":       user.Username,
+        "email":          user.Email,
+        "profile_picture": user.ProfilePicture,
+        "contact":        user.Contact,
+    }
+
+    c.JSON(http.StatusOK, gin.H{"user": sanitizedUser})
+})
+
+		// PUT /update-profile: Update the user's profile
+		protected.PUT("/update-profile", func(c *gin.Context) {
+			// Fetch user ID from the context
+			userID, exists := c.Get("user_id")
 			if !exists {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 				return
 			}
-			
-			// Log the user details before sending to frontend
-			log.Printf("User data to send to frontend: %+v", user)
-			
-			// Return only non-sensitive user details
-			sanitizedUser := gin.H{
-				"id":             user.(*models.User).ID,
-				"username":       user.(*models.User).Username,
-				"email":          user.(*models.User).Email,
-				"profile_picture": user.(*models.User).ProfilePicture,
-				"contact":        user.(*models.User).Contact,
-			}
-			
-			// Log the sanitized data being sent to frontend
-			log.Printf("Sanitized user data: %+v", sanitizedUser)
-			
-			c.JSON(http.StatusOK, gin.H{"user": sanitizedUser})
-		})
 
-		// PUT /update-profile: Update the user's profile
-		protected.PUT("/update-profile", func(c *gin.Context) {
-			user, exists := c.Get("user")
-			if !exists {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+			// Fetch user details from the database
+			user, err := services.GetUserByID(userID.(uint))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 				return
 			}
 
@@ -108,30 +124,46 @@ func SetupRoutes(router *gin.Engine) {
 				return
 			}
 
-			// Fetch the latest user data from the database to ensure fresh data
-			updatedUser, err := services.UpdateUserProfile(user.(*models.User).ID, updateRequest.Username, updateRequest.Email, updateRequest.Contact)
+			// Log the update request data
+			log.Printf("Updating user profile with: %+v", updateRequest)
+
+			// Call the service to update user profile
+			updatedUser, err := services.UpdateUserProfile(user.ID, updateRequest.Username, updateRequest.Email, updateRequest.Contact)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 
+			log.Printf("Updated User Profile: %+v", updatedUser)
+
 			c.JSON(http.StatusOK, gin.H{"user": updatedUser})
 		})
 
+		
 		// POST /update-profile-picture: Update the user's profile picture
 		protected.POST("/update-profile-picture", func(c *gin.Context) {
-			user, exists := c.Get("user")
+			// Fetch user ID from the context
+			userID, exists := c.Get("user_id")
 			if !exists {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 				return
 			}
 
+			// Fetch user details from the database
+			user, err := services.GetUserByID(userID.(uint))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+				return
+			}
+
+			// Get the file from the request
 			file, err := c.FormFile("profilePicture")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Profile picture file required"})
 				return
 			}
 
+			// Define the upload directory and base URL
 			baseURL := os.Getenv("BASE_URL")
 			if baseURL == "" {
 				baseURL = "http://localhost:8080/birdseye_backend"
@@ -145,13 +177,14 @@ func SetupRoutes(router *gin.Engine) {
 			filePath := uploadDir + file.Filename
 			profilePicturePath := baseURL + "/" + filePath
 
+			// Save the uploaded file
 			if err := c.SaveUploadedFile(file, filePath); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload profile picture"})
 				return
 			}
 
-			// Fetch the latest user data before updating profile picture
-			updatedUser, err := services.UpdateUserProfilePicture(user.(*models.User).ID, profilePicturePath)
+			// Update user profile with the new profile picture path
+			updatedUser, err := services.UpdateUserProfilePicture(user.ID, profilePicturePath)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -162,9 +195,17 @@ func SetupRoutes(router *gin.Engine) {
 
 		// PUT /change-password: Change the user's password
 		protected.PUT("/change-password", func(c *gin.Context) {
-			user, exists := c.Get("user")
+			// Fetch user ID from the context
+			userID, exists := c.Get("user_id")
 			if !exists {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+				return
+			}
+
+			// Fetch user details from the database
+			user, err := services.GetUserByID(userID.(uint))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 				return
 			}
 
@@ -178,7 +219,7 @@ func SetupRoutes(router *gin.Engine) {
 				return
 			}
 
-			err := services.ChangePassword(user.(*models.User).ID, changePasswordRequest.CurrentPassword, changePasswordRequest.NewPassword)
+			err = services.ChangePassword(user.ID, changePasswordRequest.CurrentPassword, changePasswordRequest.NewPassword)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return

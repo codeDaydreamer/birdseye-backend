@@ -73,6 +73,7 @@ func main() {
 		&models.Vaccination{},
 		&models.Subscription{},
 		&models.BillingInfo{},
+		&models.Report{},
 		
 		
 	)
@@ -115,6 +116,7 @@ func main() {
 	api.SetupVaccinationRoutes(router)
 	api.SetupBillingRoutes(router)
 	api.SetupSubscriptionRoutes(router)
+	api.SetupReportsRoutes(router)
 
 	// WebSocket route
 	router.GET("/ws", handleWebSocket)

@@ -1,8 +1,10 @@
 package models
 
 import (
-	"golang.org/x/crypto/bcrypt"
-	
+	"fmt"
+"golang.org/x/crypto/bcrypt"
+	"birdseye-backend/pkg/db"  // Ensure to import the db package
+	"gorm.io/gorm"
 )
 
 // BillingInfo represents user billing details
@@ -31,13 +33,13 @@ type Subscription struct {
 // User represents a system user
 type User struct {
 	ID             uint          `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username       string       `gorm:"unique;not null" json:"username"`
-	Email          string       `gorm:"unique;not null" json:"email"`
-	Password       string       `json:"password"`
-	ProfilePicture string       `json:"profile_picture"`
-	Contact        string       `json:"contact"`
-	Subscription   Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
-	BillingInfo    BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
+	Username       string        `gorm:"unique;not null" json:"username"`
+	Email          string        `gorm:"unique;not null" json:"email"`
+	Password       string        `json:"password"`
+	ProfilePicture string        `json:"profile_picture"`
+	Contact        string        `json:"contact"`
+	Subscription   Subscription  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
+	BillingInfo    BillingInfo   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
 
 // HashPassword hashes the password using bcrypt
@@ -56,4 +58,17 @@ func (u *User) CheckPassword(password string) bool {
 	return err == nil
 }
 
+// GetUserByID retrieves a user by their ID from the database
+func GetUserByID(userID uint) (*User, error) {
+	var user User
 
+	// Fetch the user from the database using the provided userID
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("user with ID %d not found", userID)
+		}
+		return nil, fmt.Errorf("error retrieving user: %w", err)
+	}
+
+	return &user, nil
+}

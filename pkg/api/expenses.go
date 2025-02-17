@@ -3,10 +3,9 @@ package api
 import (
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
-	"birdseye-backend/pkg/middlewares"
 	"log"
 	"net/http"
-
+"birdseye-backend/pkg/middlewares"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,17 +29,18 @@ func SetupExpenseRoutes(r *gin.Engine) {
 // GetExpenses retrieves expenses for the authenticated user
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	log.Println("GET /expenses called")
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
 		log.Println("GetExpenses: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("GetExpenses: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		log.Println("GetExpenses: Error fetching user from DB:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -52,17 +52,19 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 
 	c.JSON(http.StatusOK, expenses)
 }
+
 // AddExpense adds a new expense for the authenticated user
 func (h *ExpenseHandler) AddExpense(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -72,8 +74,8 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 		return
 	}
 
-	// Assign the authenticated user's ID to the expense (with proper type conversion)
-	expense.UserID = uint(userID)
+	// Assign the authenticated user's ID to the expense
+	expense.UserID = user.ID
 
 	if err := db.DB.Create(&expense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create expense"})
@@ -85,17 +87,17 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 
 // UpdateExpense updates an existing expense for the authenticated user
 func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
 		log.Println("UpdateExpense: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("UpdateExpense: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
@@ -122,17 +124,17 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 
 // DeleteExpense deletes an expense for the authenticated user
 func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	userID, exists := c.Get("user_id") // Get user ID from context
 	if !exists {
 		log.Println("DeleteExpense: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		log.Println("DeleteExpense: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+	// Fetch user data from the database
+	user, err := models.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 

@@ -58,7 +58,7 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		return
 	}
 
-	vaccination.FlockID = uint(id)
+	vaccination.FlockID = uint(id) // Correct handling of flock_id as uint
 
 	if err := db.DB.Create(&vaccination).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination"})

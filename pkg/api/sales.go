@@ -20,7 +20,7 @@ func SetupSalesRoutes(r *gin.Engine) {
 	salesRoutes := r.Group("/sales").Use(middlewares.AuthMiddleware())
 	{
 		salesRoutes.GET("/", handler.GetSales)
-		salesRoutes.GET("/flock/:flockID", handler.GetSalesByFlock) // New route ✅
+		salesRoutes.GET("/flock/:flockID", handler.GetSalesByFlock)
 		salesRoutes.POST("/", handler.AddSale)
 		salesRoutes.PUT("/:id", handler.UpdateSale)
 		salesRoutes.DELETE("/:id", handler.DeleteSale)
@@ -30,17 +30,24 @@ func SetupSalesRoutes(r *gin.Engine) {
 // GetSales retrieves sales records for the authenticated user
 func (h *SalesHandler) GetSales(c *gin.Context) {
 	log.Println("GET /sales called")
-	userVal, exists := c.Get("user")
+
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		log.Println("GetSales: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("GetSales: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using the GetUserByID function
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -52,26 +59,32 @@ func (h *SalesHandler) GetSales(c *gin.Context) {
 
 	c.JSON(http.StatusOK, sales)
 }
+
 // GetSalesByFlock retrieves sales records for a specific flock
 func (h *SalesHandler) GetSalesByFlock(c *gin.Context) {
 	log.Println("GET /sales/flock/:flockID called")
 
-	userVal, exists := c.Get("user")
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		log.Println("GetSalesByFlock: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("GetSalesByFlock: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using the GetUserByID function
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
 	flockID := c.Param("flockID")
-
 	var sales []models.Sale
 	if err := db.DB.Where("flock_id = ? AND user_id = ?", flockID, user.ID).Find(&sales).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sales for flock"})
@@ -83,15 +96,23 @@ func (h *SalesHandler) GetSalesByFlock(c *gin.Context) {
 
 // AddSale adds a new sale for the authenticated user
 func (h *SalesHandler) AddSale(c *gin.Context) {
+	// Fetch user ID from the context
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	userID, ok := userIDVal.(int)
+	userID, ok := userIDVal.(uint)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using the GetUserByID function
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -101,9 +122,7 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 		return
 	}
 
-	// Assign the authenticated user's ID to the sale (with proper type conversion)
-	sale.UserID = uint(userID)
-
+	sale.UserID = user.ID
 	if err := db.DB.Create(&sale).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sale"})
 		return
@@ -114,22 +133,27 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 
 // UpdateSale updates an existing sale for the authenticated user
 func (h *SalesHandler) UpdateSale(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		log.Println("UpdateSale: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("UpdateSale: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using the GetUserByID function
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
 	id := c.Param("id")
-
 	var sale models.Sale
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&sale).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found or unauthorized"})
@@ -151,22 +175,27 @@ func (h *SalesHandler) UpdateSale(c *gin.Context) {
 
 // DeleteSale deletes a sale for the authenticated user
 func (h *SalesHandler) DeleteSale(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		log.Println("DeleteSale: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("DeleteSale: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using the GetUserByID function
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
 	id := c.Param("id")
-
 	var sale models.Sale
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&sale).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found or unauthorized"})

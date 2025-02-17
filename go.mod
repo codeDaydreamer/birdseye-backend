@@ -10,7 +10,10 @@ require (
 	gorm.io/driver/mysql v1.5.7
 )
 
+require github.com/sirupsen/logrus v1.9.3 
+
 require (
+	github.com/SebastiaanKlippert/go-wkhtmltopdf v1.9.3
 	github.com/bytedance/sonic v1.12.6 // indirect
 	github.com/bytedance/sonic/loader v0.2.1 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect

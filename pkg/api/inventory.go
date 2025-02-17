@@ -29,17 +29,27 @@ func SetupInventoryRoutes(r *gin.Engine) {
 // GetInventory retrieves inventory records for the authenticated user
 func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	log.Println("GET /inventory called")
-	userVal, exists := c.Get("user")
+
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		log.Println("GetInventory: User not found in context")
+		log.Println("GetInventory: User ID not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("GetInventory: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		log.Println("GetInventory: Invalid user ID")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using GetUserByID
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		log.Println("GetInventory: User not found")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
 
@@ -54,15 +64,23 @@ func (h *InventoryHandler) GetInventory(c *gin.Context) {
 
 // AddInventoryItem adds a new inventory item for the authenticated user
 func (h *InventoryHandler) AddInventoryItem(c *gin.Context) {
+	// Fetch user ID from the context
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	userID, ok := userIDVal.(int)
+	userID, ok := userIDVal.(uint)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using GetUserByID
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
 
@@ -72,7 +90,7 @@ func (h *InventoryHandler) AddInventoryItem(c *gin.Context) {
 		return
 	}
 
-	item.UserID = uint(userID)
+	item.UserID = user.ID // Use user.ID as uint
 
 	if err := db.DB.Create(&item).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create inventory item"})
@@ -84,23 +102,33 @@ func (h *InventoryHandler) AddInventoryItem(c *gin.Context) {
 
 // UpdateInventoryItem updates an existing inventory item for the authenticated user
 func (h *InventoryHandler) UpdateInventoryItem(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
 		log.Println("UpdateInventoryItem: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("UpdateInventoryItem: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		log.Println("UpdateInventoryItem: Invalid user ID")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using GetUserByID
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		log.Println("UpdateInventoryItem: User not found")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
 
 	id := c.Param("id")
 
 	var item models.InventoryItem
+	// Convert user.ID and item ID to uint for the query
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&item).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Inventory item not found or unauthorized"})
 		return
@@ -121,23 +149,33 @@ func (h *InventoryHandler) UpdateInventoryItem(c *gin.Context) {
 
 // DeleteInventoryItem deletes an inventory item for the authenticated user
 func (h *InventoryHandler) DeleteInventoryItem(c *gin.Context) {
-	userVal, exists := c.Get("user")
+	// Fetch user ID from the context
+	userIDVal, exists := c.Get("user_id")
 	if !exists {
 		log.Println("DeleteInventoryItem: User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	user, ok := userVal.(*models.User)
+	userID, ok := userIDVal.(uint)
 	if !ok {
-		log.Println("DeleteInventoryItem: User data type mismatch")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
+		log.Println("DeleteInventoryItem: Invalid user ID")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user details from the database using GetUserByID
+	user, err := models.GetUserByID(userID)
+	if err != nil {
+		log.Println("DeleteInventoryItem: User not found")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
 
 	id := c.Param("id")
 
 	var item models.InventoryItem
+	// Convert user.ID and item ID to uint for the query
 	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&item).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Inventory item not found or unauthorized"})
 		return
