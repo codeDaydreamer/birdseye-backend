@@ -4,7 +4,7 @@ import (
 	"birdseye-backend/pkg/broadcast"
 	"birdseye-backend/pkg/models"
 	"errors"
-
+	"time"
 	"gorm.io/gorm"
 )
 
@@ -39,8 +39,10 @@ func (s *VaccinationService) GetVaccinationByID(vaccinationID uint) (*models.Vac
 	return &vaccination, nil
 }
 
-// AddVaccination adds a new vaccination record and broadcasts an update
 func (s *VaccinationService) AddVaccination(vaccination *models.Vaccination) error {
+	// Ensure the date is correctly formatted
+	vaccination.Date = vaccination.Date.Local() // Ensures it's stored in the local time zone
+
 	if err := s.DB.Create(vaccination).Error; err != nil {
 		return err
 	}
@@ -48,7 +50,7 @@ func (s *VaccinationService) AddVaccination(vaccination *models.Vaccination) err
 	return nil
 }
 
-// UpdateVaccination updates an existing vaccination record independently of the date
+
 func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, updatedData map[string]interface{}) error {
     var vaccination models.Vaccination
     if err := s.DB.Where("id = ? AND flock_id = ?", vaccinationID, flockID).First(&vaccination).Error; err != nil {
@@ -58,26 +60,37 @@ func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, upda
         return err
     }
 
-    // Only allow specific fields to be updated
     allowedFields := map[string]bool{
         "vaccine_name": true,
         "status":       true,
+        "date":         true, // Date is allowed but needs proper formatting
     }
 
     validUpdates := make(map[string]interface{})
     for key, value := range updatedData {
         if allowedFields[key] {
-            validUpdates[key] = value
+            if key == "date" {
+                // Convert date to MySQL-compatible format
+                if strDate, ok := value.(string); ok {
+                    parsedTime, err := time.Parse(time.RFC3339, strDate)
+                    if err != nil {
+                        return errors.New("invalid date format, expected RFC3339")
+                    }
+                    validUpdates["date"] = parsedTime.Format("2006-01-02 15:04:05") // MySQL format
+                }
+            } else {
+                validUpdates[key] = value
+            }
         }
     }
 
-    // If no valid updates are provided, return an error
-    if len(validUpdates) == 0 {
-        return errors.New("no valid fields provided for update")
+    // ✅ Omit "date" unless explicitly updated
+    query := s.DB.Model(&vaccination)
+    if _, exists := updatedData["date"]; !exists {
+        query = query.Omit("date")
     }
 
-    // Use Select() to explicitly update only the allowed fields
-    if err := s.DB.Model(&vaccination).Select("vaccine_name", "status").Updates(validUpdates).Error; err != nil {
+    if err := query.Updates(validUpdates).Error; err != nil {
         return err
     }
 

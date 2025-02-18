@@ -6,7 +6,7 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"net/http"
 	"strconv"
-
+	"time"
 	"github.com/gin-gonic/gin"
 )
 
@@ -43,8 +43,6 @@ func (h *VaccinationHandler) GetVaccinations(c *gin.Context) {
 
 	c.JSON(http.StatusOK, vaccinations)
 }
-
-// AddVaccination adds a vaccination record for a flock (using 'id' as parameter)
 func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -58,7 +56,15 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		return
 	}
 
-	vaccination.FlockID = uint(id) // Correct handling of flock_id as uint
+	// Manually parse date from string to time.Time
+	parsedDate, err := time.Parse("2006-01-02 15:04:05", c.PostForm("date"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected 'YYYY-MM-DD HH:MM:SS'"})
+		return
+	}
+
+	vaccination.Date = parsedDate
+	vaccination.FlockID = uint(id) // Ensure flock_id is correctly assigned
 
 	if err := db.DB.Create(&vaccination).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination"})
@@ -68,42 +74,42 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 	c.JSON(http.StatusCreated, vaccination)
 }
 
-// UpdateVaccination updates a vaccination record
+
 func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
-	id, err1 := strconv.Atoi(c.Param("id"))
-	vaccinationID, err2 := strconv.Atoi(c.Param("vaccination_id"))
+    id, err1 := strconv.Atoi(c.Param("id"))
+    vaccinationID, err2 := strconv.Atoi(c.Param("vaccination_id"))
 
-	if err1 != nil || err2 != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
-		return
-	}
+    if err1 != nil || err2 != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+        return
+    }
 
-	var vaccination models.Vaccination
-	if err := db.DB.Where("id = ? AND flock_id = ?", vaccinationID, id).First(&vaccination).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Vaccination not found"})
-		return
-	}
+    var vaccination models.Vaccination
+    if err := db.DB.Where("id = ? AND flock_id = ?", vaccinationID, id).First(&vaccination).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Vaccination not found"})
+        return
+    }
 
-	// Parse JSON into a map to check for missing fields
-	var updatedData map[string]interface{}
-	if err := c.ShouldBindJSON(&updatedData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    // Parse JSON into a map to check for missing fields
+    var updatedData map[string]interface{}
+    if err := c.ShouldBindJSON(&updatedData); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	// ✅ Remove "date" if it's not included in the request
-	query := db.DB.Model(&vaccination)
-	if _, exists := updatedData["date"]; !exists {
-		query = query.Omit("date")
-	}
+    // Ensure "date" is updated only if explicitly provided
+    query := db.DB.Model(&vaccination)
+    if _, exists := updatedData["date"]; !exists {
+        query = query.Omit("date")
+    }
 
-	// ✅ Only update provided fields
-	if err := query.Updates(updatedData).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vaccination"})
-		return
-	}
+    // Perform update
+    if err := query.Updates(updatedData).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vaccination"})
+        return
+    }
 
-	c.JSON(http.StatusOK, vaccination)
+    c.JSON(http.StatusOK, vaccination)
 }
 
 // DeleteVaccination deletes a vaccination record

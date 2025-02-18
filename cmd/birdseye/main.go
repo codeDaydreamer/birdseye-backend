@@ -105,6 +105,10 @@ func main() {
 		// Serve uploaded profile pictures
 		router.Static("/birdseye_backend/uploads", "./uploads")
 
+		// Serve generated reports (e.g., PDFs)
+		router.Static("/birdseye_backend/reports", "./reports")
+
+
 
 	// Set up routes
 	api.SetupInventoryRoutes(router)

@@ -8,13 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"birdseye-backend/pkg/middlewares"
 	"github.com/sirupsen/logrus"
+	
 )
 
 // ReportsHandler handles report-related requests
 type ReportsHandler struct {
 	ReportsService *services.ReportsService
 }
-
 // SetupReportsRoutes sets up the routes for report generation
 func SetupReportsRoutes(r *gin.Engine) {
 	// Initialize the ReportsService with the db connection
@@ -26,8 +26,46 @@ func SetupReportsRoutes(r *gin.Engine) {
 	{
 		reportsRoutes.POST("/sales", handler.GenerateSalesReport)
 		reportsRoutes.POST("/inventory", handler.GenerateInventoryReport)
+		reportsRoutes.GET("/user/:userID", handler.GetUserReports) // Corrected route for fetching user reports
 	}
 }
+
+func (h *ReportsHandler) GetUserReports(c *gin.Context) {
+    // Get userID from the context (set by AuthMiddleware)
+    userID, exists := c.Get("user_id")
+    if !exists {
+        logrus.Error("User not authorized: user_id missing in context")
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authorized"})
+        return
+    }
+
+    // Ensure userID is uint
+    authUserID, ok := userID.(uint)
+    if !ok {
+        logrus.Errorf("Invalid user ID: %v, unable to cast to uint", userID)
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+        return
+    }
+
+    // Retrieve the reports for the authenticated user
+    reports, err := h.ReportsService.GetUserReports(authUserID)
+    if err != nil {
+        logrus.Errorf("Failed to retrieve user reports: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user reports"})
+        return
+    }
+
+    logrus.Infof("Successfully retrieved reports for user ID %d", authUserID)
+
+    // No need to modify the report content URL since it's already absolute
+    // Simply return the reports as is
+
+    // Return the reports in a structured format
+    c.JSON(http.StatusOK, gin.H{
+        "reports": reports,
+    })
+}
+
 
 // GenerateSalesReport handles the report generation for sales
 func (h *ReportsHandler) GenerateSalesReport(c *gin.Context) {
