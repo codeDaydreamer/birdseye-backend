@@ -15,15 +15,16 @@ type Sale struct {
 	Product     string    `json:"product" gorm:"type:varchar(100);not null"`
 	Category    string    `json:"category" gorm:"type:varchar(50);not null"` 
 	Description string    `json:"description" gorm:"type:varchar(255);not null"`
-	Date        time.Time `json:"date" gorm:"not null"`
+	Quantity    int       `json:"quantity" gorm:"not null"` // ✅ Added Quantity field
+	UnitPrice   float64   `json:"unit_price" gorm:"not null"` // ✅ Added Unit Price field
 	Amount      float64   `json:"amount" gorm:"not null"`
+	Date        time.Time `json:"date" gorm:"not null"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 
 	// Relationship
 	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"` // ✅ Ensure GORM recognizes the relationship
 }
-
 
 // GenerateRefNo generates a unique reference number for sales
 func GenerateRefNo(userID uint) string {

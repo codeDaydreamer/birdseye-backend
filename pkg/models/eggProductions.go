@@ -10,7 +10,7 @@ type EggProduction struct {
 	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID        uint      `json:"user_id" gorm:"index;not null"`
 	FlockID       uint      `json:"flock_id" gorm:"index;not null"`
-	FlockName     string    `json:"flock_name" gorm:"-"`  // Not stored in DB, fetched via join
+	FlockName     string    `json:"flock_name" gorm:"column:flock_name"`  // Not stored in DB, fetched via join
 	EggsCollected int       `json:"eggs_collected" gorm:"not null"`
 	PricePerUnit  float64   `json:"price_per_unit" gorm:"not null;default:0"` // Price per egg
 	TotalRevenue  float64   `json:"total_revenue" gorm:"-"`                    // Computed in service

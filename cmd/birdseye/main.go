@@ -11,6 +11,7 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
 
+	
 	"net/http"
 
 	"github.com/gin-contrib/cors"
@@ -51,8 +52,6 @@ func handleWebSocket(c *gin.Context) {
 }
 
 func main() {
-
-	
 	// Load environment variables
 	err := godotenv.Load("/home/palaski-jr/birdseye-backend/.env")
 	if err != nil {
@@ -74,8 +73,6 @@ func main() {
 		&models.Subscription{},
 		&models.BillingInfo{},
 		&models.Report{},
-		
-		
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -102,12 +99,11 @@ func main() {
 	// Remove proxy restrictions
 	router.SetTrustedProxies(nil)
 
-		// Serve uploaded profile pictures
-		router.Static("/birdseye_backend/uploads", "./uploads")
+	// Serve uploaded profile pictures
+	router.Static("/birdseye_backend/uploads", "./uploads")
 
-		// Serve generated reports (e.g., PDFs)
-		router.Static("/birdseye_backend/reports", "./reports")
-
+	// Serve generated reports (e.g., PDFs)
+	router.Static("/pkg/reports/generated", "./pkg/reports/generated")
 
 
 	// Set up routes
