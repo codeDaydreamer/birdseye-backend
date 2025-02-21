@@ -10,6 +10,7 @@ import (
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
+	
 
 	
 	"net/http"
@@ -73,6 +74,7 @@ func main() {
 		&models.Subscription{},
 		&models.BillingInfo{},
 		&models.Report{},
+		&models.FlockFinancialData{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -117,6 +119,9 @@ func main() {
 	api.SetupBillingRoutes(router)
 	api.SetupSubscriptionRoutes(router)
 	api.SetupReportsRoutes(router)
+	api.SetupFinancialRoutes(router) 
+	
+	
 
 	// WebSocket route
 	router.GET("/ws", handleWebSocket)
