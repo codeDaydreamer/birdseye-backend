@@ -1,55 +1,59 @@
 package services
 
 import (
-	"log"
-	"time"
-	"errors"
 	"birdseye-backend/pkg/models"
+	"errors"
 	"gorm.io/gorm"
 )
 
-// FlockFinancialService handles flock financial calculations
+// FlockFinancialService manages flock financial data
 type FlockFinancialService struct {
-	db             *gorm.DB
-	financeService *FinanceService // Injected instance
+	DB *gorm.DB
 }
 
-// NewFlockFinancialService initializes the service with dependencies
-func NewFlockFinancialService(db *gorm.DB, financeService *FinanceService) *FlockFinancialService {
-	return &FlockFinancialService{
-		db:             db,
-		financeService: financeService,
-	}
+// NewFlockFinancialService initializes a new service instance
+func NewFlockFinancialService(db *gorm.DB) *FlockFinancialService {
+	return &FlockFinancialService{DB: db}
 }
-// GetFlockFinancialData fetches financial data for the given user and period
-func (s *FlockFinancialService) GetFlockFinancialData(userID uint, periodStart, periodEnd time.Time) ([]models.FlockFinancialData, error) {
-	log.Printf("Triggering financial data calculation for user %d from %s to %s", userID, periodStart, periodEnd)
 
-	// Ensure financeService is initialized
-	if s.financeService == nil {
-		log.Println("FinanceService is not initialized")
-		return nil, errors.New("finance service is not available")
-	}
+// GetFinancialDataByUser retrieves financial records for a specific user
+func (s *FlockFinancialService) GetFinancialDataByUser(userID uint) ([]models.FlocksFinancialData, error) {
+	var financialData []models.FlocksFinancialData
+	err := s.DB.Where("user_id = ?", userID).Find(&financialData).Error
+	return financialData, err
+}
 
-	// Trigger financial data calculation before fetching
-	_, err := s.financeService.getFinanceDataForPeriod(periodStart, periodEnd, userID)
+// GetFinancialDataByFlock retrieves financial data for a specific flock
+func (s *FlockFinancialService) GetFinancialDataByFlock(flockID uint, userID uint) (*models.FlocksFinancialData, error) {
+	var financialData models.FlocksFinancialData
+	err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).First(&financialData).Error
 	if err != nil {
-		log.Printf("Error calculating financial data: %v", err)
 		return nil, err
 	}
+	return &financialData, nil
+}
 
-	// Fetch financial data from the database
-	var financialData []models.FlockFinancialData
-	log.Printf("Fetching financial data for user %d from %s to %s", userID, periodStart, periodEnd)
-
-	err = s.db.Model(&models.FlockFinancialData{}).
-		Where("user_id = ? AND period_start BETWEEN ? AND ?", userID, periodStart, periodEnd).
-		Find(&financialData).Error
-
-	if err != nil {
-		log.Printf("Error fetching flock financial data: %v", err)
-		return nil, err
+// AddOrUpdateFinancialData adds or updates financial data for a flock
+func (s *FlockFinancialService) AddOrUpdateFinancialData(financialData *models.FlocksFinancialData) error {
+	var existing models.FlocksFinancialData
+	err := s.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?", 
+		financialData.FlockID, financialData.UserID, financialData.Month, financialData.Year).
+		First(&existing).Error
+	
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s.DB.Create(financialData).Error
 	}
 
-	return financialData, nil
+	// Update existing record
+	existing.Revenue = financialData.Revenue
+	existing.EggSales = financialData.EggSales
+	existing.Expenses = financialData.Expenses
+	existing.NetRevenue = financialData.NetRevenue
+
+	return s.DB.Save(&existing).Error
+}
+
+// DeleteFinancialData removes financial data for a flock
+func (s *FlockFinancialService) DeleteFinancialData(flockID uint, userID uint) error {
+	return s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).Delete(&models.FlocksFinancialData{}).Error
 }

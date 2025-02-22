@@ -6,9 +6,10 @@ import (
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
 	"fmt"
-	"sort"
+
 	"log"
-	"encoding/json"
+
+	"time"
 )
 
 type FlockService struct {
@@ -45,12 +46,15 @@ func (s *FlockService) GetFlockByID(flockID, userID uint) (*models.Flock, error)
 	}
 	return &flock, nil
 }
-
 func (s *FlockService) AddFlock(flock *models.Flock) error {
     fmt.Printf("Adding new flock: %+v\n", flock)
 
+    // Define date range for financial calculations (current month)
+    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+    end := start.AddDate(0, 1, -1) // Last day of the month
+
     // Compute initial metrics before saving
-    s.CalculateFlockMetrics(flock, flock.UserID) // ✅ Pass userID
+    s.CalculateFlockMetrics(flock, flock.UserID, start, end) // ✅ Now includes date range
     fmt.Printf("Metrics after calculation: %+v\n", flock)
 
     // Save to database
@@ -66,12 +70,14 @@ func (s *FlockService) AddFlock(flock *models.Flock) error {
     return nil
 }
 
-
-
 func (s *FlockService) UpdateFlock(flock *models.Flock) error {
     log.Printf("📢 UpdateFlock called for Flock ID: %d\n", flock.ID)
-    
-    s.CalculateFlockMetrics(flock, flock.UserID) // ✅ Pass userID
+
+    // Define date range for financial calculations (current month)
+    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+    end := start.AddDate(0, 1, -1) // Last day of the month
+
+    s.CalculateFlockMetrics(flock, flock.UserID, start, end) // ✅ Now includes date range
 
     if err := s.DB.Save(flock).Error; err != nil {
         log.Printf("❌ Error saving flock ID %d: %v\n", flock.ID, err)
@@ -81,7 +87,6 @@ func (s *FlockService) UpdateFlock(flock *models.Flock) error {
     broadcast.SendFlockUpdate("flock_updated", *flock)
     return nil
 }
-
 
 
 
@@ -100,13 +105,12 @@ func (s *FlockService) DeleteFlock(flockID, userID uint) error {
 	return nil
 }
 
-func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint) {
+func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint, start, end time.Time) {
     log.Printf("Calculating metrics for Flock ID %d...", flock.ID)
 
     s.CalculateMortalityRate(flock)
-    s.CalculateFeedIntake(flock)
-    s.CalculateRevenueAndExpenses(flock, userID) // ✅ Now userID is passed correctly
-    s.AggregateEggProduction(flock)
+    s.CalculateRevenueAndExpenses(flock, userID, start, end) // ✅ Now includes date range
+ 
 
     log.Printf("Metrics before saving: %+v\n", flock)
 
@@ -117,8 +121,7 @@ func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint) {
         "revenue":                flock.Revenue,
         "expenses":               flock.Expenses,
         "health":                 flock.Health,
-        "egg_production_7_days":  flock.EggProduction7Days,
-        "egg_production_4_weeks": flock.EggProduction4Weeks,
+        
     }).Error
 
     if err != nil {
@@ -127,6 +130,7 @@ func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint) {
         log.Printf("✅ Successfully updated flock metrics for Flock ID %d\n", flock.ID)
     }
 }
+
 
 
 
@@ -158,28 +162,12 @@ func (s *FlockService) CalculateMortalityRate(flock *models.Flock) {
 
 
 
-// 🔹 Calculate daily feed intake (Stores in DB)
-func (s *FlockService) CalculateFeedIntake(flock *models.Flock) {
-	totalFeed := 0
-	days := len(flock.FeedConsumption)
 
-	if days > 0 {
-		for _, feed := range flock.FeedConsumption {
-			totalFeed += int(feed)
-		}
-		flock.FeedIntake = float64(totalFeed) / float64(days) // Average intake per day
-	} else {
-		flock.FeedIntake = 0
-	}
-
-	fmt.Printf("Flock ID %d - Feed Intake Calculated: %.2f (Total Feed: %d, Days: %d)\n",
-		flock.ID, flock.FeedIntake, totalFeed, days)
-}
-func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID uint) {
+func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID uint, start, end time.Time) {
     var totalRevenue, totalEggSales, totalExpenses float64
 
-    // Fetch all sales related to the flock for the specific user
-    sales, err := s.SalesService.GetSalesByFlock(flock.ID, userID)
+    // Fetch sales within the specified date range
+    sales, err := s.SalesService.GetSalesByFlockAndPeriod(flock.ID, userID, start, end)
     if err != nil {
         fmt.Println("Error fetching flock sales:", err)
         return
@@ -193,8 +181,8 @@ func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID u
         totalRevenue += sale.Amount
     }
 
-    // Fetch all expenses related to the flock (without userID)
-    expenses, err := s.ExpenseService.GetExpensesByFlock(flock.ID)
+    // Fetch expenses within the specified date range
+    expenses, err := s.ExpenseService.GetExpensesByFlockAndPeriod(flock.ID, userID, start, end)
     if err != nil {
         fmt.Println("Error fetching flock expenses:", err)
         return
@@ -208,74 +196,26 @@ func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID u
     // Compute net revenue (profit/loss)
     netRevenue := totalRevenue - totalExpenses
 
-    // Update the flock record
-    flock.Revenue = netRevenue
-    flock.Expenses = totalExpenses
+    // Store financial data in a separate table
+	financialData := models.FlocksFinancialData{
+		FlockID:    flock.ID,
+		UserID:     userID,
+		Month:      int(start.Month()),  // Convert time.Month to int
+		Year:       start.Year(),
+		Revenue:    totalRevenue,
+		EggSales:   totalEggSales,
+		Expenses:   totalExpenses,
+		NetRevenue: netRevenue,
+	}
+	
 
-    // Save updates to the database
-    if err := s.DB.Save(&flock).Error; err != nil {
-        fmt.Println("Error updating flock revenue and expenses:", err)
+    // Upsert into the database
+    if err := s.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?", flock.ID, userID, start.Month(), start.Year()).
+        Assign(financialData).FirstOrCreate(&financialData).Error; err != nil {
+        fmt.Println("Error updating flock financial data:", err)
     }
 
-    fmt.Printf("Flock ID %d - Revenue: %.2f, Egg Sales: %.2f, Expenses: %.2f, Net Revenue: %.2f\n",
-        flock.ID, totalRevenue, totalEggSales, totalExpenses, netRevenue)
+    fmt.Printf("Flock ID %d - Revenue: %.2f, Egg Sales: %.2f, Expenses: %.2f, Net Revenue: %.2f for %s %d\n",
+        flock.ID, totalRevenue, totalEggSales, totalExpenses, netRevenue, start.Month().String(), start.Year())
 }
 
-// 🔹 Aggregate Egg Production for 7 Days and 4 Weeks (Stores in DB)
-func (s *FlockService) AggregateEggProduction(flock *models.Flock) {
-	eggProductions, err := s.EggProductionService.GetEggProductionByUser(flock.UserID)
-	if err != nil {
-		fmt.Println("❌ Error fetching egg production data:", err)
-		return
-	}
-
-	// Filter by flock and sort by date
-	filteredEggs := []models.EggProduction{}
-	for _, egg := range eggProductions {
-		if egg.FlockID == flock.ID {
-			filteredEggs = append(filteredEggs, egg)
-		}
-	}
-
-	sort.Slice(filteredEggs, func(i, j int) bool {
-		return filteredEggs[i].DateProduced.After(filteredEggs[j].DateProduced)
-	})
-
-	eggCounts := []int{}
-	for _, egg := range filteredEggs {
-		eggCounts = append(eggCounts, egg.EggsCollected)
-	}
-
-	// Ensure eggCounts is not nil (though in Go, slices are never nil after initialization)
-	if eggCounts == nil {
-		eggCounts = []int{}
-	}
-
-	// Compute last 7 days
-	var jsonData7 []byte
-	if len(eggCounts) >= 7 {
-		jsonData7, err = json.Marshal(eggCounts[:7])
-	} else {
-		jsonData7, err = json.Marshal(eggCounts)
-	}
-	if err != nil {
-		fmt.Printf("❌ Error marshaling egg production (7 days) for Flock ID %d: %v\n", flock.ID, err)
-		jsonData7 = []byte("[]") // Fallback to an empty array
-	}
-	flock.EggProduction7Days = jsonData7
-
-	// Compute last 4 weeks (28 days)
-	var jsonData28 []byte
-	if len(eggCounts) >= 28 {
-		jsonData28, err = json.Marshal(eggCounts[:28])
-	} else {
-		jsonData28, err = json.Marshal(eggCounts)
-	}
-	if err != nil {
-		fmt.Printf("❌ Error marshaling egg production (28 days) for Flock ID %d: %v\n", flock.ID, err)
-		jsonData28 = []byte("[]") // Fallback to an empty array
-	}
-	flock.EggProduction4Weeks = jsonData28
-
-	fmt.Printf("✅ Egg production data updated for Flock ID %d\n", flock.ID)
-}

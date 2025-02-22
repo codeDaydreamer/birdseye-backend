@@ -31,9 +31,11 @@ func SetupReportsRoutes(r *gin.Engine) {
 		reportsRoutes.POST("/sales", handler.GenerateSalesReport)
 		reportsRoutes.POST("/egg-production", handler.GenerateEggProductionReport)
 		reportsRoutes.POST("/inventory", handler.GenerateInventoryReport)
-		reportsRoutes.POST("/flock", handler.GenerateFlockReport) // New route
+		reportsRoutes.POST("/flock", handler.GenerateFlockReport)          // Existing route
+		reportsRoutes.POST("/financial", handler.GenerateFinancialReport)  // New route
 	}
 }
+
 
 
 
@@ -349,6 +351,32 @@ func (h *ReportsHandler) GenerateFlockReport(c *gin.Context) {
 
 	// Generate the flock report
 	pdfPath, err := reports.GenerateFlockReport(db.DB, authUserID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
+		return
+	}
+
+	// Send the file as response
+	c.File(pdfPath)
+}
+
+func (h *ReportsHandler) GenerateFinancialReport(c *gin.Context) {
+	// Get userID from authentication middleware
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authorized"})
+		return
+	}
+
+	// Convert userID to uint
+	authUserID, ok := userID.(uint)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Generate the financial report for all flocks of the user
+	pdfPath, err := reports.GenerateFinancialReport(db.DB, authUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return

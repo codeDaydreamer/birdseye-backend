@@ -74,7 +74,7 @@ func main() {
 		&models.Subscription{},
 		&models.BillingInfo{},
 		&models.Report{},
-		&models.FlockFinancialData{},
+		&models.FlocksFinancialData{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -119,7 +119,7 @@ func main() {
 	api.SetupBillingRoutes(router)
 	api.SetupSubscriptionRoutes(router)
 	api.SetupReportsRoutes(router)
-	api.SetupFinancialRoutes(router) 
+	api.SetupFlockFinancialRoutes(router) 
 	
 	
 

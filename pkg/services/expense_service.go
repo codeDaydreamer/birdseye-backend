@@ -6,6 +6,7 @@ import (
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
 	"log"
+	"time"
 )
 
 // ExpenseService provides methods to manage expenses
@@ -25,15 +26,29 @@ func (s *ExpenseService) GetExpensesByUser(userID uint) ([]models.Expense, error
 	return expenses, err
 }
 
-// GetExpensesByFlock retrieves expenses related to a specific flock
-func (s *ExpenseService) GetExpensesByFlock(flockID uint) ([]models.Expense, error) {
-	var expenses []models.Expense
-	err := s.DB.Where("flock_id = ?", flockID).Find(&expenses).Error
-	if err != nil {
-		log.Printf("❌ Error fetching expenses for flock %d: %v", flockID, err)
-		return nil, err
-	}
-	return expenses, nil
+// GetExpensesByFlock retrieves expenses related to a specific flock for a given user,
+// including timestamps for dynamic filtering.
+func (s *ExpenseService) GetExpensesByFlock(flockID uint, userID uint) ([]models.Expense, error) {
+    var expenses []models.Expense
+    err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).
+        Order("created_at DESC").Find(&expenses).Error
+    if err != nil {
+        log.Printf("❌ Error fetching expenses for flock %d: %v", flockID, err)
+        return nil, err
+    }
+    return expenses, nil
+}
+
+// GetExpensesByFlockAndPeriod retrieves expenses for a flock within a given time range
+func (s *ExpenseService) GetExpensesByFlockAndPeriod(flockID uint, userID uint, start, end time.Time) ([]models.Expense, error) {
+    var expenses []models.Expense
+    err := s.DB.Where("flock_id = ? AND user_id = ? AND created_at BETWEEN ? AND ?", flockID, userID, start, end).
+        Order("created_at DESC").Find(&expenses).Error
+    if err != nil {
+        log.Printf("❌ Error fetching expenses for flock %d in period: %v", flockID, err)
+        return nil, err
+    }
+    return expenses, nil
 }
 
 // AddExpense adds a new expense and sends a WebSocket update

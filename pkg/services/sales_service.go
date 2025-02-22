@@ -5,6 +5,7 @@ import (
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
+	"time"
 )
 
 // SalesService provides methods to manage sales
@@ -24,11 +25,21 @@ func (s *SalesService) GetSalesByUser(userID uint) ([]models.Sale, error) {
 	return sales, err
 }
 
-// GetSalesByFlock retrieves sales related to a specific flock for an authenticated user
+// GetSalesByFlock retrieves sales related to a specific flock for an authenticated user,
+// including timestamps for dynamic filtering.
 func (s *SalesService) GetSalesByFlock(flockID uint, userID uint) ([]models.Sale, error) {
-	var sales []models.Sale
-	err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).Find(&sales).Error
-	return sales, err
+    var sales []models.Sale
+    err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).
+        Order("created_at DESC").Find(&sales).Error
+    return sales, err
+}
+
+// GetSalesByFlockAndPeriod retrieves sales for a flock within a given time range
+func (s *SalesService) GetSalesByFlockAndPeriod(flockID uint, userID uint, start, end time.Time) ([]models.Sale, error) {
+    var sales []models.Sale
+    err := s.DB.Where("flock_id = ? AND user_id = ? AND created_at BETWEEN ? AND ?", flockID, userID, start, end).
+        Order("created_at DESC").Find(&sales).Error
+    return sales, err
 }
 
 

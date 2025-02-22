@@ -24,11 +24,9 @@ type Flock struct {
 
 	// JSON fields (Remove DEFAULT values)
 	MortalityRateData   json.RawMessage `json:"mortality_rate_data" gorm:"type:json"`
-	FeedConsumption     json.RawMessage `json:"feed_consumption" gorm:"type:json"`
+	
 	SalesData           json.RawMessage `json:"sales_data" gorm:"type:json"`
-	EggProduction7Days  json.RawMessage `json:"egg_production_7_days" gorm:"type:json"`
-	EggProduction4Weeks json.RawMessage `json:"egg_production_4_weeks" gorm:"type:json"`
-
+	
 	// Relationships
 	VaccinationSchedule []Vaccination   `json:"vaccination_schedule" gorm:"foreignKey:FlockID"`
 	EggProductions []EggProduction `json:"egg_productions" gorm:"foreignKey:FlockID"`
@@ -46,18 +44,7 @@ func (f *Flock) BeforeSave(tx *gorm.DB) error {
 	if f.MortalityRateData == nil {
 		f.MortalityRateData = []byte("[]")
 	}
-	if f.FeedConsumption == nil {
-		f.FeedConsumption = []byte("[]")
-	}
-	if f.SalesData == nil {
-		f.SalesData = []byte("[]")
-	}
-	if f.EggProduction7Days == nil {
-		f.EggProduction7Days = []byte("[]")
-	}
-	if f.EggProduction4Weeks == nil {
-		f.EggProduction4Weeks = []byte("[]")
-	}
+
 
 	return err
 }
@@ -67,18 +54,7 @@ func (f *Flock) AfterFind(tx *gorm.DB) error {
 	if f.MortalityRateData == nil {
 		f.MortalityRateData = []byte("[]")
 	}
-	if f.FeedConsumption == nil {
-		f.FeedConsumption = []byte("[]")
-	}
-	if f.SalesData == nil {
-		f.SalesData = []byte("[]")
-	}
-	if f.EggProduction7Days == nil {
-		f.EggProduction7Days = []byte("[]")
-	}
-	if f.EggProduction4Weeks == nil {
-		f.EggProduction4Weeks = []byte("[]")
-	}
+
 	return nil
 }
 

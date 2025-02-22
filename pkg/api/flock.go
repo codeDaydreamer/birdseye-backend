@@ -7,7 +7,7 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"net/http"
 	"strconv"
-
+    "time"
 	"github.com/gin-gonic/gin"
 )
 
@@ -57,12 +57,16 @@ func (h *FlockHandler) GetFlocks(c *gin.Context) {
 
     // Recalculate and update metrics before returning the data
     for i := range flocks {
-        h.Service.CalculateFlockMetrics(&flocks[i], user.ID)
+        // Define date range for financial calculations (current month)
+start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+end := start.AddDate(0, 1, -1) // Last day of the month
+
+h.Service.CalculateFlockMetrics(&flocks[i], user.ID, start, end) // ✅ Now includes date range
+
     }
 
     c.JSON(http.StatusOK, flocks)
 }
-
 func (h *FlockHandler) GetFlock(c *gin.Context) {
     userID, exists := c.Get("user_id") // Get user ID from context
     if !exists {
@@ -89,8 +93,12 @@ func (h *FlockHandler) GetFlock(c *gin.Context) {
         return
     }
 
+    // Define date range for financial calculations (current month)
+    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+    end := start.AddDate(0, 1, -1) // Last day of the month
+
     // Recalculate and update metrics before returning the data
-    h.Service.CalculateFlockMetrics(flock, user.ID)
+    h.Service.CalculateFlockMetrics(flock, user.ID, start, end)
 
     c.JSON(http.StatusOK, flock)
 }
