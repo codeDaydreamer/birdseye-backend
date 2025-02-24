@@ -113,7 +113,7 @@ func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.T
 	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
 	log.Println("Generating PDF report at:", pdfFilePath)
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer

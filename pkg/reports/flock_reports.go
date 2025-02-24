@@ -12,7 +12,7 @@ import (
 	 "math"
 	"birdseye-backend/pkg/models"
 
-	"github.com/wcharczuk/go-chart/v2"
+
 	"gorm.io/gorm"
 )
 
@@ -36,13 +36,12 @@ type FlockReportData struct {
 	ChartImagePath string
 	AvgMortalityRate float64
 }
-
 func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting flock report generation...")
 
 	var totalBirds int
 	var flockSummaries []FlockSummary
-	var chartValues []chart.Value
+	
 
 	log.Println("Fetching user details...")
 	user, err := models.GetUserByID(userID)
@@ -58,7 +57,18 @@ func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 		return "", fmt.Errorf("failed to fetch flocks: %w", err)
 	}
 
+	if len(flocks) == 0 {
+		log.Println("No flocks found for user.")
+		return "", fmt.Errorf("no flocks found for user")
+	}
+
+	var totalMortalityRate float64
 	for _, flock := range flocks {
+		if flock.BirdCount == 0 {
+			log.Printf("Skipping flock %s with zero birds", flock.Name)
+			continue
+		}
+
 		totalBirds += flock.BirdCount
 		flockSummaries = append(flockSummaries, FlockSummary{
 			Name:          flock.Name,
@@ -67,45 +77,37 @@ func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 			Revenue:       formatCurrency(flock.Revenue),
 			Expenses:      formatCurrency(flock.Expenses),
 		})
-		chartValues = append(chartValues, chart.Value{
-			Label: flock.Name,
-			Value: float64(flock.BirdCount),
-		})
-	}
-	var totalMortalityRate float64
-for _, flock := range flockSummaries {
-    totalMortalityRate += flock.MortalityRate
-}
 
-
-// Compute average mortality rate
-avgMortalityRate := 0.0
-if len(flockSummaries) > 0 {
-    avgMortalityRate = math.Round((totalMortalityRate / float64(len(flockSummaries))) * 10) / 10
-}
-
-
-
-	log.Println("Generating flock mortality chart...")
-	chartImagePath, err := generateFlockMortalityChart(chartValues)
-	if err != nil {
-		log.Println("Error generating flock chart:", err)
-		return "", fmt.Errorf("failed to generate flock chart: %w", err)
+		totalMortalityRate += flock.MortalityRate
 	}
 
+	if len(flockSummaries) == 0 {
+		log.Println("All flocks have zero birds; report generation aborted.")
+		return "", fmt.Errorf("all flocks have zero birds, cannot generate report")
+	}
+
+	// Compute average mortality rate safely
+	avgMortalityRate := 0.0
+	if len(flockSummaries) > 0 {
+		avgMortalityRate = math.Round((totalMortalityRate / float64(len(flockSummaries))) * 10) / 10
+	}
+
+
+
+	// Report Data Struct
 	reportData := FlockReportData{
-		Title:          "Flock Report",
-		DateRange:      fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
-		User:           user.Username,
-		Email:          user.Email,
-		Contact:        user.Contact,
-		Summary:        fmt.Sprintf("Total birds: %d", totalBirds),
-		Flocks:         flockSummaries,
-		TotalBirds:     totalBirds,
-		ChartImagePath: chartImagePath,
+		Title:           "Flock Report",
+		DateRange:       fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
+		User:            user.Username,
+		Email:           user.Email,
+		Contact:         user.Contact,
+		Summary:         fmt.Sprintf("Total birds: %d", totalBirds),
+		Flocks:          flockSummaries,
+		TotalBirds:      totalBirds,
 		AvgMortalityRate: avgMortalityRate,
 	}
 
+	// Template Processing
 	baseDir, _ := os.Getwd()
 	templatePath := filepath.Join(baseDir, "pkg/reports/templates/flock_report_template.html")
 	tmpl, err := template.ParseFiles(templatePath)
@@ -120,15 +122,15 @@ if len(flockSummaries) > 0 {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 
+	// Generate PDF
 	outputDir := filepath.Join(baseDir, "pkg/reports/generated")
 	_ = os.MkdirAll(outputDir, os.ModePerm)
-
 	reportFilename := fmt.Sprintf("flock_report_%d.pdf", time.Now().Unix())
 	pdfFilePath := filepath.Join(outputDir, reportFilename)
 	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
 	log.Println("Generating PDF report...")
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer
@@ -139,6 +141,7 @@ if len(flockSummaries) > 0 {
 		return "", fmt.Errorf("failed to generate PDF: %v\nDetails: %s", err, stderr.String())
 	}
 
+	// Save Report in Database
 	report := models.Report{
 		ReportType:  "Flock",
 		GeneratedAt: time.Now(),
@@ -156,48 +159,4 @@ if len(flockSummaries) > 0 {
 
 	log.Println("Flock report generated successfully:", pdfFilePath)
 	return pdfFilePath, nil
-}
-
-func generateFlockMortalityChart(values []chart.Value) (string, error) {
-	log.Println("Rendering flock bird count chart...")
-
-	if len(values) == 0 {
-		log.Println("Chart generation skipped: No data available")
-		return "", fmt.Errorf("invalid data range; cannot be zero")
-	}
-
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/flock_mortality_chart.png")
-
-	graph := chart.BarChart{
-		Title:    "Flock Bird Count",
-		TitleStyle: chart.Style{
-			FontSize:  10, // Slightly larger for emphasis
-			FontColor: chart.ColorBlack,
-			Padding: chart.Box{
-				Top:    1, // Adds space above the title
-				Bottom: 20, // Adds space below to avoid overlap
-				Left:   10,
-				Right:  10,
-			},
-			TextWrap: chart.TextWrapWord, // Ensures text doesn’t overflow
-		},
-		Width:    800,
-		Height:   500,
-		BarWidth: 40,
-		Bars:     values,
-	}
-
-	file, err := os.Create(chartImagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	if err := graph.Render(chart.PNG, file); err != nil {
-		return "", err
-	}
-
-	log.Println("Flock bird count  saved at:", chartImagePath)
-	return chartImagePath, nil
 }

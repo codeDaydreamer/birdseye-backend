@@ -10,20 +10,21 @@ import (
 type Sale struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID      uint      `json:"user_id" gorm:"index;not null"`
-	FlockID     uint      `json:"flock_id" gorm:"index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // ✅ Add constraint
+	FlockID     uint      `json:"flock_id" gorm:"index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` 
 	RefNo       string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
 	Product     string    `json:"product" gorm:"type:varchar(100);not null"`
 	Category    string    `json:"category" gorm:"type:varchar(50);not null"` 
 	Description string    `json:"description" gorm:"type:varchar(255);not null"`
-	Quantity    int       `json:"quantity" gorm:"not null"` // ✅ Added Quantity field
-	UnitPrice   float64   `json:"unit_price" gorm:"not null"` // ✅ Added Unit Price field
+	Quantity    int       `json:"quantity" gorm:"not null"`
+	UnitPrice   float64   `json:"unit_price" gorm:"not null"`
 	Amount      float64   `json:"amount" gorm:"not null"`
 	Date        time.Time `json:"date" gorm:"not null"`
+	SaleType    string    `json:"sale_type" gorm:"type:varchar(50);not null"` // ✅ New field added
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 
 	// Relationship
-	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"` // ✅ Ensure GORM recognizes the relationship
+	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"` 
 }
 
 // GenerateRefNo generates a unique reference number for sales

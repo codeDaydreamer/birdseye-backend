@@ -122,11 +122,9 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 				Value: float64(eggs),
 			})
 		}
-		
 	}
 
 	log.Printf("Total flocks: %d", len(flockTotals))
-
 
 	log.Printf("Total chart values: %d", len(chartValues))
 	log.Println("Chart Values Debug:", chartValues)
@@ -176,8 +174,8 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 	pdfFilePath := filepath.Join(outputDir, reportFilename)
 	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
-	log.Println("Generating PDF report...")
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	log.Println("Generating PDF report using WeasyPrint...")
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer
@@ -207,26 +205,30 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 	return pdfFilePath, nil
 }
 
+
 func generateEggProductionChart(values []chart.Value) (string, error) {
 	log.Println("Rendering egg production chart...")
 
-	// Check if there are no values or all values are zero
-	if len(values) == 0 {
-		log.Println("Chart generation skipped: No data available")
+	// If there's only one flock, ensure it has valid data
+	if len(values) == 1 && values[0].Value == 0 {
+		log.Println("Chart generation skipped: Single flock has zero data")
 		return "", fmt.Errorf("invalid data range; cannot be zero")
 	}
 
-	// Check if all values are zero
-	allZero := true
+	// Ensure there is at least one non-zero value
+	hasValidData := false
+	var maxValue float64
 	for _, v := range values {
 		if v.Value > 0 {
-			allZero = false
-			break
+			hasValidData = true
+			if v.Value > maxValue {
+				maxValue = v.Value
+			}
 		}
 	}
 
-	if allZero {
-		log.Println("Chart generation skipped: All data values are zero")
+	if !hasValidData {
+		log.Println("Chart generation skipped: No valid data points")
 		return "", fmt.Errorf("invalid data range; cannot be zero")
 	}
 
@@ -240,20 +242,26 @@ func generateEggProductionChart(values []chart.Value) (string, error) {
 	graph := chart.BarChart{
 		Title:    "Egg Production by Flock",
 		TitleStyle: chart.Style{
-			FontSize:  10, // Slightly larger for emphasis
+			FontSize:  10,
 			FontColor: chart.ColorBlack,
 			Padding: chart.Box{
-				Top:    1, // Adds space above the title
-				Bottom: 20, // Adds space below to avoid overlap
+				Top:    1,
+				Bottom: 20,
 				Left:   10,
 				Right:  10,
 			},
-			TextWrap: chart.TextWrapWord, // Ensures text doesn’t overflow
+			TextWrap: chart.TextWrapWord,
 		},
 		Width:    800,
 		Height:   500,
 		BarWidth: 40,
 		Bars:     values,
+		YAxis: chart.YAxis{
+			Range: &chart.ContinuousRange{
+				Min: 0,      // Start Y-axis at 0
+				Max: maxValue * 1.1, // Scale up slightly to avoid crowding
+			},
+		},
 	}
 
 	file, err := os.Create(chartImagePath)

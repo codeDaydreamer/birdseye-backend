@@ -50,7 +50,7 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 	log.Println("Starting sales report generation...")
 
 	var sales []models.Sale
-	var categoryTotals = make(map[string]float64)
+	var salesByDate = make(map[string]float64)
 	var totalAmount float64
 
 	log.Println("Fetching user details...")
@@ -69,38 +69,23 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 	var formattedSales []FormattedSale
 	for _, sale := range sales {
 		totalAmount += sale.Amount
-		categoryTotals[sale.Category] += sale.Amount
+		dateKey := sale.Date.Format("2006-01-02") // Format as YYYY-MM-DD
+		salesByDate[dateKey] += sale.Amount // Aggregate sales by date
 	
 		formattedSales = append(formattedSales, FormattedSale{
 			RefNo:           sale.RefNo,
 			Product:         sale.Product,
 			Category:        sale.Category,
 			Description:     sale.Description,
-			Quantity:        sale.Quantity, // Ensure your Sale model has a Quantity field
-			UnitPrice:       formatCurrency(sale.UnitPrice), // Ensure UnitPrice is correctly formatted
+			Quantity:        sale.Quantity,
+			UnitPrice:       formatCurrency(sale.UnitPrice),
 			FormattedAmount: formatCurrency(sale.Amount),
 			FormattedDate:   sale.Date.Format("Jan 2, 2006"),
 		})
 	}
-	
 
-	log.Println("Summarizing sales categories...")
-	var categorySummary []SalesCategorySummary
-	var chartValues []chart.Value
-
-	for category, total := range categoryTotals {
-		categorySummary = append(categorySummary, SalesCategorySummary{
-			Category: category,
-			Total:    formatCurrency(total),
-		})
-		chartValues = append(chartValues, chart.Value{
-			Label: category,
-			Value: total,
-		})
-	}
-
-	log.Println("Generating sales chart...")
-	chartImagePath, err := generateSalesChart(chartValues)
+	log.Println("Generating sales trend chart...")
+	chartImagePath, err := generateSalesTrendChart(salesByDate, startDate, endDate)
 	if err != nil {
 		log.Println("Error generating sales chart:", err)
 		return "", fmt.Errorf("failed to generate sales chart: %w", err)
@@ -114,7 +99,6 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 		Contact:         user.Contact,
 		Summary:         fmt.Sprintf("Total sales recorded: %s", formatCurrency(totalAmount)),
 		Sales:           formattedSales,
-		CategorySummary: categorySummary,
 		TotalAmount:     formatCurrency(totalAmount),
 		ChartImagePath:  chartImagePath,
 	}
@@ -141,7 +125,7 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
 	log.Println("Generating PDF report at:", pdfFilePath)
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer
@@ -171,54 +155,74 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 	return pdfFilePath, nil
 }
 
-func generateSalesChart(values []chart.Value) (string, error) {
-	log.Println("Rendering sales chart...")
+func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate time.Time) (string, error) {
+	log.Println("Rendering sales trend chart...")
 	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/sales_chart.png")
-	
-	for i := range values {
-		values[i].Label = fmt.Sprintf("%s\n(%s)", values[i].Label, formatCurrency(values[i].Value))
+	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/sales_trend_chart.png")
+
+	// Ensure at least one default point if no sales exist
+	var xValues []time.Time
+	var yValues []float64
+	currentDate := startDate
+
+	for !currentDate.After(endDate) {
+		dateStr := currentDate.Format("2006-01-02")
+		xValues = append(xValues, currentDate)
+		yValues = append(yValues, salesByDate[dateStr])
+		currentDate = currentDate.AddDate(0, 0, 1) // Move to next day
 	}
 
-	graph := chart.BarChart{
-		Title: "Sales Breakdown by Category",
+	// Prevent empty chart rendering
+	if len(xValues) == 0 {
+		xValues = append(xValues, startDate)
+		yValues = append(yValues, 0)
+	}
+
+	graph := chart.Chart{
+		Title: "Sales Trend Over Time",
 		TitleStyle: chart.Style{
-			FontSize:  10, // Slightly larger for emphasis
+			FontSize:  12,
 			FontColor: chart.ColorBlack,
-			Padding: chart.Box{
-				Top:    1, // Adds space above the title
-				Bottom: 20, // Adds space below to avoid overlap
-				Left:   10,
-				Right:  10,
-			},
-			TextWrap: chart.TextWrapWord, // Ensures text doesn’t overflow
-		},
-		Background: chart.Style{
-			Padding: chart.Box{
-				Top:    30,
-				Bottom: 30,
-				Left:   50,  // More space for y-axis labels
-				Right:  30,
-			},
 		},
 		Width:  800,
 		Height: 500,
-		BarWidth: 40,
-		Bars:  values,
+		Series: []chart.Series{
+			chart.TimeSeries{
+				Name:    "Sales Amount",
+				XValues: xValues,
+				YValues: yValues,
+				Style: chart.Style{
+				
+					StrokeColor: chart.ColorBlue,
+					StrokeWidth: 2,
+				},
+			},
+		},
+		XAxis: chart.XAxis{
+			Name: "Date",
+			Style: chart.Style{
+				
+			},
+			TickPosition: chart.TickPositionBetweenTicks,
+		},
+		YAxis: chart.YAxis{
+			Name: "Sales Amount",
+			Style: chart.Style{
+				
+			},
+		},
 	}
 
 	file, err := os.Create(chartImagePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create chart file: %w", err)
 	}
 	defer file.Close()
 
 	if err := graph.Render(chart.PNG, file); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to render chart: %w", err)
 	}
 
-	log.Println("Sales chart saved at:", chartImagePath)
+	log.Println("Sales trend chart saved at:", chartImagePath)
 	return chartImagePath, nil
 }
-
-

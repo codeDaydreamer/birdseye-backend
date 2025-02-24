@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
@@ -24,27 +25,41 @@ func (s *EggProductionService) GetEggProductionByUser(userID uint) ([]models.Egg
 	return records, err
 }
 
-// AddEggProduction adds a new egg production record, calculates revenue, and sends a WebSocket update
+// AddEggProduction adds a new egg production record, calculates revenue, and sends a WebSocket update and notification
 func (s *EggProductionService) AddEggProduction(record *models.EggProduction) error {
 	record.TotalRevenue = float64(record.EggsCollected) * record.PricePerUnit
 	if err := s.DB.Create(record).Error; err != nil {
 		return err
 	}
-	broadcast.SendEggProductionUpdate("egg_production_added", *record)
+
+	// Send WebSocket update
+	broadcast.SendEggProductionUpdate(record.UserID, "egg_production_added", *record)
+
+	// Send notification
+	notificationMessage := fmt.Sprintf("New egg production record added: %d eggs collected.", record.EggsCollected)
+	broadcast.SendNotification(record.UserID, "Egg Production Added", notificationMessage, "/dashboard")
+
 	return nil
 }
 
-// UpdateEggProduction updates an existing egg production record, recalculates revenue, and sends a WebSocket update
+// UpdateEggProduction updates an existing egg production record, recalculates revenue, and sends a WebSocket update and notification
 func (s *EggProductionService) UpdateEggProduction(record *models.EggProduction) error {
 	record.TotalRevenue = float64(record.EggsCollected) * record.PricePerUnit
 	if err := s.DB.Save(record).Error; err != nil {
 		return err
 	}
-	broadcast.SendEggProductionUpdate("egg_production_updated", *record)
+
+	// Send WebSocket update
+	broadcast.SendEggProductionUpdate(record.UserID, "egg_production_updated", *record)
+
+	// Send notification
+	notificationMessage := fmt.Sprintf("Egg production record updated: %d eggs collected.", record.EggsCollected)
+	broadcast.SendNotification(record.UserID, "Egg Production Updated", notificationMessage, "/dashboard")
+
 	return nil
 }
 
-// DeleteEggProduction removes an egg production record by ID and sends a WebSocket update
+// DeleteEggProduction removes an egg production record by ID and sends a WebSocket update and notification
 func (s *EggProductionService) DeleteEggProduction(recordID uint, userID uint) error {
 	var record models.EggProduction
 	if err := s.DB.Where("id = ? AND user_id = ?", recordID, userID).First(&record).Error; err != nil {
@@ -55,6 +70,12 @@ func (s *EggProductionService) DeleteEggProduction(recordID uint, userID uint) e
 		return err
 	}
 
-	broadcast.SendEggProductionUpdate("egg_production_deleted", recordID)
+	// Send WebSocket update
+	broadcast.SendEggProductionUpdate(userID, "egg_production_deleted", recordID)
+
+	// Send notification
+	notificationMessage := "An egg production record was deleted."
+	broadcast.SendNotification(userID, "Egg Production Deleted", notificationMessage, "/dashboard")
+
 	return nil
 }

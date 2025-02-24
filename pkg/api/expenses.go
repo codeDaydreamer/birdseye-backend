@@ -7,16 +7,19 @@ import (
 	"net/http"
 "birdseye-backend/pkg/middlewares"
 	"github.com/gin-gonic/gin"
+	"birdseye-backend/pkg/services"
+	
+
 )
 
 // ExpenseHandler handles expense-related requests
-type ExpenseHandler struct{}
+type ExpenseHandler struct {
+	Service *services.ExpenseService // ✅ Inject ExpenseService
+}
 
-// SetupExpenseRoutes sets up the expense API routes with authentication middleware
-func SetupExpenseRoutes(r *gin.Engine) {
-	handler := &ExpenseHandler{} // Create an instance of ExpenseHandler
+func SetupExpenseRoutes(r *gin.Engine, expenseService *services.ExpenseService) {
+	handler := &ExpenseHandler{Service: expenseService} // Inject the service
 
-	// Apply authentication middleware to all expense routes
 	expenseRoutes := r.Group("/expenses").Use(middlewares.AuthMiddleware())
 	{
 		expenseRoutes.GET("/", handler.GetExpenses)
@@ -25,6 +28,7 @@ func SetupExpenseRoutes(r *gin.Engine) {
 		expenseRoutes.DELETE("/:id", handler.DeleteExpense)
 	}
 }
+
 
 // GetExpenses retrieves expenses for the authenticated user
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
@@ -64,12 +68,14 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 	// Fetch user data from the database
 	user, err := models.GetUserByID(userID.(uint))
 	if err != nil {
+		log.Printf("❌ Error fetching user: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
 		return
 	}
 
 	var expense models.Expense
 	if err := c.ShouldBindJSON(&expense); err != nil {
+		log.Printf("❌ Invalid request data: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -77,11 +83,16 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 	// Assign the authenticated user's ID to the expense
 	expense.UserID = user.ID
 
-	if err := db.DB.Create(&expense).Error; err != nil {
+	// ✅ Call ExpenseService to handle logic
+	log.Println("📌 Calling ExpenseService to add expense...")
+	err = h.Service.AddExpense(&expense) // ✅ Now it correctly calls the service
+	if err != nil {
+		log.Printf("❌ Error adding expense: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create expense"})
 		return
 	}
 
+	log.Println("✅ Expense successfully added!")
 	c.JSON(http.StatusCreated, expense)
 }
 

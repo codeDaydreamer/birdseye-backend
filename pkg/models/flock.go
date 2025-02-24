@@ -59,18 +59,19 @@ func (f *Flock) AfterFind(tx *gorm.DB) error {
 }
 
 
-// WebSocket event hooks
 func (f *Flock) AfterCreate(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate("flock_added", *f)
+	broadcast.SendFlockUpdate(f.UserID, "flock_added", *f)
 	return nil
 }
 
 func (f *Flock) AfterUpdate(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate("flock_updated", *f)
+	broadcast.SendFlockUpdate(f.UserID, "flock_updated", *f)
 	return nil
 }
 
 func (f *Flock) AfterDelete(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate("flock_deleted", f.ID)
+	broadcast.SendFlockUpdate(f.UserID, "flock_deleted", f.ID)
 	return nil
 }
+
+

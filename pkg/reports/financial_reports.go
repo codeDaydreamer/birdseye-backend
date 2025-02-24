@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/wcharczuk/go-chart/v2"
+	
 	"gorm.io/gorm"
 	"birdseye-backend/pkg/models"
 )
@@ -86,7 +86,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 	}
 
 	var formattedFinancialData []FormattedFlockFinancial
-	var chartValues []chart.Value
+	
 	var startDate, endDate time.Time
 
 	for _, data := range financialData {
@@ -112,10 +112,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 			NetRevenue: formatCurrency(data.NetRevenue),
 		})
 
-		chartValues = append(chartValues, chart.Value{
-			Label: fmt.Sprintf("%s (%s)", getMonthName(data.Month), flock.Name),
-			Value: data.NetRevenue,
-		})
+
 
 		if startDate.IsZero() || data.Month < int(startDate.Month()) {
 			startDate, endDate = getReportDateRange(data.Month, data.Year)
@@ -123,11 +120,8 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 	}
 
 	log.Println("Generating financial chart...")
-	chartImagePath, err := generateFinancialChart(chartValues)
-	if err != nil {
-		log.Println("Error generating financial chart:", err)
-		return "", fmt.Errorf("failed to generate financial chart: %w", err)
-	}
+	
+
 
 	reportData := FinancialReportData{
 		Title:         "Financial Report",
@@ -142,7 +136,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 		TotalEggSales:   formatCurrency(totalEggSales),
 		TotalExpenses:   formatCurrency(totalExpenses),
 		TotalNetRevenue: formatCurrency(totalNetRevenue),
-		ChartImagePath:  chartImagePath,
+		
 	}
 
 	baseDir, _ := os.Getwd()
@@ -167,7 +161,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
 	log.Println("Generating PDF report at:", pdfFilePath)
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer
@@ -197,53 +191,3 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 	return pdfFilePath, nil
 }
 
-
-func generateFinancialChart(values []chart.Value) (string, error) {
-	log.Println("Rendering financial chart...")
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/financial_chart.png")
-
-	for i := range values {
-		values[i].Label = fmt.Sprintf("%s\n(%s)", values[i].Label, formatCurrency(values[i].Value))
-	}
-
-	graph := chart.BarChart{
-		Title: "Financial Breakdown by Net Revenue",
-		TitleStyle: chart.Style{
-			FontSize:  10, 
-			FontColor: chart.ColorBlack,
-			Padding: chart.Box{
-				Top:    1,
-				Bottom: 20,
-				Left:   10,
-				Right:  10,
-			},
-			TextWrap: chart.TextWrapWord,
-		},
-		Background: chart.Style{
-			Padding: chart.Box{
-				Top:    30,
-				Bottom: 30,
-				Left:   50,  
-				Right:  30,
-			},
-		},
-		Width:  800,
-		Height: 500,
-		BarWidth: 40,
-		Bars:  values,
-	}
-
-	file, err := os.Create(chartImagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	if err := graph.Render(chart.PNG, file); err != nil {
-		return "", err
-	}
-
-	log.Println("Financial chart saved at:", chartImagePath)
-	return chartImagePath, nil
-}

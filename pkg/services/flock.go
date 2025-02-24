@@ -54,7 +54,7 @@ func (s *FlockService) AddFlock(flock *models.Flock) error {
     end := start.AddDate(0, 1, -1) // Last day of the month
 
     // Compute initial metrics before saving
-    s.CalculateFlockMetrics(flock, flock.UserID, start, end) // ✅ Now includes date range
+    s.CalculateFlockMetrics(flock, flock.UserID, start, end)
     fmt.Printf("Metrics after calculation: %+v\n", flock)
 
     // Save to database
@@ -65,8 +65,8 @@ func (s *FlockService) AddFlock(flock *models.Flock) error {
 
     fmt.Printf("Flock successfully added with ID %d\n", flock.ID)
     
-    // Send real-time update
-    broadcast.SendFlockUpdate("flock_added", *flock)
+    // Send real-time update with userID
+    broadcast.SendFlockUpdate(flock.UserID, "flock_added", *flock)
     return nil
 }
 
@@ -77,33 +77,33 @@ func (s *FlockService) UpdateFlock(flock *models.Flock) error {
     start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
     end := start.AddDate(0, 1, -1) // Last day of the month
 
-    s.CalculateFlockMetrics(flock, flock.UserID, start, end) // ✅ Now includes date range
+    s.CalculateFlockMetrics(flock, flock.UserID, start, end)
 
     if err := s.DB.Save(flock).Error; err != nil {
         log.Printf("❌ Error saving flock ID %d: %v\n", flock.ID, err)
         return err
     }
     
-    broadcast.SendFlockUpdate("flock_updated", *flock)
+    // Send real-time update with userID
+    broadcast.SendFlockUpdate(flock.UserID, "flock_updated", *flock)
     return nil
 }
 
-
-
-// DeleteFlock removes a flock record by ID and sends a WebSocket update
 func (s *FlockService) DeleteFlock(flockID, userID uint) error {
-	var flock models.Flock
-	if err := s.DB.Where("id = ? AND user_id = ?", flockID, userID).First(&flock).Error; err != nil {
-		return errors.New("flock not found")
-	}
+    var flock models.Flock
+    if err := s.DB.Where("id = ? AND user_id = ?", flockID, userID).First(&flock).Error; err != nil {
+        return errors.New("flock not found")
+    }
 
-	if err := s.DB.Delete(&flock).Error; err != nil {
-		return err
-	}
+    if err := s.DB.Delete(&flock).Error; err != nil {
+        return err
+    }
 
-	broadcast.SendFlockUpdate("flock_deleted", flockID)
-	return nil
+    // Send real-time update with userID
+    broadcast.SendFlockUpdate(userID, "flock_deleted", flockID)
+    return nil
 }
+
 
 func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint, start, end time.Time) {
     log.Printf("Calculating metrics for Flock ID %d...", flock.ID)

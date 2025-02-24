@@ -1,4 +1,5 @@
 package reports
+
 import (
 	"bytes"
 	"fmt"
@@ -27,7 +28,6 @@ type FormattedExpense struct {
 	FormattedDate   string // Store formatted date as a string
 }
 
-
 type ExpenseReportData struct {
 	Title            string
 	DateRange        string
@@ -38,12 +38,12 @@ type ExpenseReportData struct {
 	Expenses         []FormattedExpense
 	CategorySummary  []ExpenseCategorySummary
 	TotalAmount      string
-	ChartImagePath        string
+	ChartImagePath   string
 }
-
 func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting expense report generation...")
 
+	// Fetch expenses and calculate totals per category.
 	var expenses []models.Expense
 	var categoryTotals = make(map[string]float64)
 	var totalAmount float64
@@ -61,6 +61,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		return "", fmt.Errorf("failed to fetch expenses: %w", err)
 	}
 
+	// Format expense data for report.
 	var formattedExpenses []FormattedExpense
 	for _, expense := range expenses {
 		totalAmount += expense.Amount
@@ -70,14 +71,14 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 			Category:        expense.Category,
 			Description:     expense.Description,
 			FormattedAmount: formatCurrency(expense.Amount),
-			FormattedDate:   expense.Date.Format("Jan 2, 2006"), // e.g., "Feb 16, 2025"
+			FormattedDate:   expense.Date.Format("Jan 2, 2006"),
 		})
 	}
-	
+
+	// Prepare category summary for chart.
 	log.Println("Summarizing expense categories...")
 	var categorySummary []ExpenseCategorySummary
 	var chartValues []chart.Value
-
 	for category, total := range categoryTotals {
 		categorySummary = append(categorySummary, ExpenseCategorySummary{
 			Category: category,
@@ -89,6 +90,14 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		})
 	}
 
+	// Ensure there's data for the chart (default to 0 if none exists).
+	if len(chartValues) == 0 {
+		chartValues = append(chartValues, chart.Value{
+			Label: "No Data",
+			Value: 0,
+		})
+	}
+
 	log.Println("Generating expense chart...")
 	chartImagePath, err := generateExpenseChart(chartValues)
 	if err != nil {
@@ -96,6 +105,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		return "", fmt.Errorf("failed to generate expense chart: %w", err)
 	}
 
+	// Prepare report data.
 	reportData := ExpenseReportData{
 		Title:           "Expense Report",
 		DateRange:       fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
@@ -109,6 +119,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		ChartImagePath:  chartImagePath,
 	}
 
+	// Load the HTML template.
 	baseDir, _ := os.Getwd()
 	templatePath := filepath.Join(baseDir, "pkg/reports/templates/expense_report_template.html")
 	log.Println("Loading template from:", templatePath)
@@ -118,6 +129,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		return "", fmt.Errorf("failed to load template: %w", err)
 	}
 
+	// Execute the template.
 	var htmlBuffer bytes.Buffer
 	log.Println("Executing template...")
 	if err := tmpl.Execute(&htmlBuffer, reportData); err != nil {
@@ -125,15 +137,17 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 
+	// Create the output directory and generate PDF.
 	outputDir := filepath.Join(baseDir, "pkg/reports/generated")
 	_ = os.MkdirAll(outputDir, os.ModePerm)
 
 	reportFilename := fmt.Sprintf("expense_report_%d.pdf", time.Now().Unix())
 	pdfFilePath := filepath.Join(outputDir, reportFilename)
-	relativePath := filepath.Join("pkg/reports/generated", reportFilename) // Relative path for frontend
+	relativePath := filepath.Join("pkg/reports/generated", reportFilename)
 
+	// Use WeasyPrint for PDF generation.
 	log.Println("Generating PDF report at:", pdfFilePath)
-	cmd := exec.Command("wkhtmltopdf", "--enable-local-file-access", "-", pdfFilePath)
+	cmd := exec.Command("weasyprint", "-", pdfFilePath)
 	cmd.Stdin = bytes.NewReader(htmlBuffer.Bytes())
 
 	var stderr bytes.Buffer
@@ -144,13 +158,14 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		return "", fmt.Errorf("failed to generate PDF: %v\nDetails: %s", err, stderr.String())
 	}
 
+	// Save report details to the database.
 	log.Println("Saving report details to database...")
 	report := models.Report{
 		ReportType:  "Expense",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
 		Name:        reportFilename,
-		Content:     relativePath, // Store relative path for frontend access
+		Content:     relativePath,
 		StartDate:   startDate,
 		EndDate:     endDate,
 	}
@@ -190,7 +205,6 @@ func generateExpenseChart(values []chart.Value) (string, error) {
 			},
 			TextWrap: chart.TextWrapWord, // Ensures text doesn’t overflow
 		},
-		
 		Background: chart.Style{
 			Padding: chart.Box{
 				Top:    30,
@@ -243,7 +257,6 @@ func generateExpenseChart(values []chart.Value) (string, error) {
 	log.Println("Expense chart saved at:", chartImagePath)
 	return chartImagePath, nil
 }
-
 
 func formatCurrency(amount float64) string {
 	return fmt.Sprintf("KES %s", humanize.Commaf(amount))

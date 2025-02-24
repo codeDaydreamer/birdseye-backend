@@ -62,6 +62,29 @@ func SetupRoutes(router *gin.Engine) {
 			})
 		})
 
+				// Google OAuth login endpoint
+				auth.GET("/google/login", func(c *gin.Context) {
+					authURL := services.GoogleAuthURL()
+					c.Redirect(http.StatusFound, authURL)
+				})
+		
+				// Google OAuth callback endpoint
+				auth.GET("/google/callback", func(c *gin.Context) {
+					code := c.Query("code")
+					if code == "" {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "Authorization code missing"})
+						return
+					}
+		
+					token, user, err := services.GoogleAuthCallback(code)
+					if err != nil {
+						c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+						return
+					}
+		
+					c.JSON(http.StatusOK, gin.H{"token": token, "user": user})
+				})
+
 		// Protected routes (Require authentication)
 		protected := auth.Group("/")
 		protected.Use(middlewares.AuthMiddleware()) // Apply auth middleware only to these routes

@@ -43,25 +43,47 @@ func (s *SalesService) GetSalesByFlockAndPeriod(flockID uint, userID uint, start
 }
 
 
-// AddSale adds a new sale and sends a WebSocket update
+// AddSale adds a new sale, sends a WebSocket update, and notifies the user
 func (s *SalesService) AddSale(sale *models.Sale) error {
 	if err := s.DB.Create(sale).Error; err != nil {
 		return err
 	}
-	broadcast.SendSaleUpdate("sale_added", *sale)
+
+	// Send WebSocket update
+	broadcast.SendSaleUpdate(sale.UserID, "sale_added", *sale)
+
+	// Send Notification
+	broadcast.SendNotification(
+		sale.UserID,
+		"New Sale Added",
+		"Your sale record has been successfully added.",
+		"/sales",
+	)
+
 	return nil
 }
 
-// UpdateSale updates an existing sale and sends a WebSocket update
+// UpdateSale updates an existing sale, sends a WebSocket update, and notifies the user
 func (s *SalesService) UpdateSale(sale *models.Sale) error {
 	if err := s.DB.Save(sale).Error; err != nil {
 		return err
 	}
-	broadcast.SendSaleUpdate("sale_updated", *sale)
+
+	// Send WebSocket update
+	broadcast.SendSaleUpdate(sale.UserID, "sale_updated", *sale)
+
+	// Send Notification
+	broadcast.SendNotification(
+		sale.UserID,
+		"Sale Updated",
+		"Your sale record has been successfully updated.",
+		"/sales",
+	)
+
 	return nil
 }
 
-// DeleteSale removes a sale record by ID and sends a WebSocket update
+// DeleteSale removes a sale record by ID, sends a WebSocket update, and notifies the user
 func (s *SalesService) DeleteSale(saleID uint, userID uint) error {
 	var sale models.Sale
 	if err := s.DB.Where("id = ? AND user_id = ?", saleID, userID).First(&sale).Error; err != nil {
@@ -72,6 +94,16 @@ func (s *SalesService) DeleteSale(saleID uint, userID uint) error {
 		return err
 	}
 
-	broadcast.SendSaleUpdate("sale_deleted", saleID)
+	// Send WebSocket update
+	broadcast.SendSaleUpdate(userID, "sale_deleted", saleID)
+
+	// Send Notification
+	broadcast.SendNotification(
+		userID,
+		"Sale Deleted",
+		"A sale record has been removed from your account.",
+		"/sales",
+	)
+
 	return nil
 }

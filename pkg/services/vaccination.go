@@ -41,65 +41,61 @@ func (s *VaccinationService) GetVaccinationByID(vaccinationID uint) (*models.Vac
 
 func (s *VaccinationService) AddVaccination(vaccination *models.Vaccination) error {
 	// Ensure the date is correctly formatted
-	vaccination.Date = vaccination.Date.Local() // Ensures it's stored in the local time zone
+	vaccination.Date = vaccination.Date.Local()
 
 	if err := s.DB.Create(vaccination).Error; err != nil {
 		return err
 	}
-	broadcast.SendFlockUpdate("vaccination_added", *vaccination)
+
+	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_added", *vaccination)
 	return nil
 }
 
-
 func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, updatedData map[string]interface{}) error {
-    var vaccination models.Vaccination
-    if err := s.DB.Where("id = ? AND flock_id = ?", vaccinationID, flockID).First(&vaccination).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return errors.New("vaccination record not found")
-        }
-        return err
-    }
+	var vaccination models.Vaccination
+	if err := s.DB.Where("id = ? AND flock_id = ?", vaccinationID, flockID).First(&vaccination).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("vaccination record not found")
+		}
+		return err
+	}
 
-    allowedFields := map[string]bool{
-        "vaccine_name": true,
-        "status":       true,
-        "date":         true, // Date is allowed but needs proper formatting
-    }
+	allowedFields := map[string]bool{
+		"vaccine_name": true,
+		"status":       true,
+		"date":         true,
+	}
 
-    validUpdates := make(map[string]interface{})
-    for key, value := range updatedData {
-        if allowedFields[key] {
-            if key == "date" {
-                // Convert date to MySQL-compatible format
-                if strDate, ok := value.(string); ok {
-                    parsedTime, err := time.Parse(time.RFC3339, strDate)
-                    if err != nil {
-                        return errors.New("invalid date format, expected RFC3339")
-                    }
-                    validUpdates["date"] = parsedTime.Format("2006-01-02 15:04:05") // MySQL format
-                }
-            } else {
-                validUpdates[key] = value
-            }
-        }
-    }
+	validUpdates := make(map[string]interface{})
+	for key, value := range updatedData {
+		if allowedFields[key] {
+			if key == "date" {
+				if strDate, ok := value.(string); ok {
+					parsedTime, err := time.Parse(time.RFC3339, strDate)
+					if err != nil {
+						return errors.New("invalid date format, expected RFC3339")
+					}
+					validUpdates["date"] = parsedTime.Format("2006-01-02 15:04:05")
+				}
+			} else {
+				validUpdates[key] = value
+			}
+		}
+	}
 
-    // ✅ Omit "date" unless explicitly updated
-    query := s.DB.Model(&vaccination)
-    if _, exists := updatedData["date"]; !exists {
-        query = query.Omit("date")
-    }
+	query := s.DB.Model(&vaccination)
+	if _, exists := updatedData["date"]; !exists {
+		query = query.Omit("date")
+	}
 
-    if err := query.Updates(validUpdates).Error; err != nil {
-        return err
-    }
+	if err := query.Updates(validUpdates).Error; err != nil {
+		return err
+	}
 
-    broadcast.SendFlockUpdate("vaccination_updated", vaccination)
-    return nil
+	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_updated", vaccination)
+	return nil
 }
 
-
-// DeleteVaccination removes a vaccination record by ID
 func (s *VaccinationService) DeleteVaccination(vaccinationID uint) error {
 	var vaccination models.Vaccination
 	if err := s.DB.First(&vaccination, vaccinationID).Error; err != nil {
@@ -113,6 +109,7 @@ func (s *VaccinationService) DeleteVaccination(vaccinationID uint) error {
 		return err
 	}
 
-	broadcast.SendFlockUpdate("vaccination_deleted", vaccinationID)
+	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_deleted", vaccinationID)
 	return nil
 }
+
