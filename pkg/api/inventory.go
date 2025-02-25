@@ -25,8 +25,7 @@ func SetupInventoryRoutes(r *gin.Engine) {
 		inventoryRoutes.DELETE("/:id", handler.DeleteInventoryItem)
 	}
 }
-
-// GetInventory retrieves inventory records for the authenticated user
+// GetInventory retrieves inventory records for the authenticated user, including flock names
 func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	log.Println("GET /inventory called")
 
@@ -54,9 +53,19 @@ func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	}
 
 	var items []models.InventoryItem
-	if err := db.DB.Where("user_id = ?", user.ID).Find(&items).Error; err != nil {
+	// Fetch inventory items and preload the Flock data (to get the flock name)
+	if err := db.DB.Preload("Flock").Where("user_id = ?", user.ID).Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve inventory items"})
 		return
+	}
+
+	// Include flock name in the response
+	for i := range items {
+		// Ensure Flock is loaded and we can access the name
+		if items[i].Flock != nil {
+			// Optionally, you can add the flock name directly to the response if needed
+			items[i].FlockName = items[i].Flock.Name
+		}
 	}
 
 	c.JSON(http.StatusOK, items)

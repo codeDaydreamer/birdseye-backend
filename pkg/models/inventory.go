@@ -12,8 +12,12 @@ type InventoryItem struct {
     FlockID     uint    `gorm:"not null;index" json:"flock_id"` // Foreign key reference to Flock
 
     // Relationship
-    Flock       Flock   `gorm:"foreignKey:FlockID;constraint:OnDelete:CASCADE;" json:"flock"` // Define relationship with Flock
+    Flock       *Flock  `gorm:"foreignKey:FlockID;constraint:OnDelete:CASCADE;" json:"flock"` // Define relationship with Flock
+
+    // Dynamic field to hold flock name in the response
+    FlockName   string  `json:"flock_name,omitempty"` // This will not be saved to the database, just for the API response
 }
+
 
 // TableName overrides the default table name
 func (InventoryItem) TableName() string {

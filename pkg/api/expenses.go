@@ -26,8 +26,13 @@ func SetupExpenseRoutes(r *gin.Engine, expenseService *services.ExpenseService) 
 		expenseRoutes.POST("/", handler.AddExpense)
 		expenseRoutes.PUT("/:id", handler.UpdateExpense)
 		expenseRoutes.DELETE("/:id", handler.DeleteExpense)
+
+		// Budget-related routes
+		expenseRoutes.GET("/budget", handler.GetTotalBudget)
+		expenseRoutes.PUT("/budget", handler.UpdateBudget)
 	}
 }
+
 
 
 // GetExpenses retrieves expenses for the authenticated user
@@ -163,4 +168,58 @@ func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Expense deleted successfully"})
+}
+
+
+func (h *ExpenseHandler) GetTotalBudget(c *gin.Context) {
+	log.Println("GET /expenses/budget called")
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var totalBudget float64
+	err := db.DB.Model(&models.Expense{}).
+		Where("user_id = ?", userID).
+		Select("COALESCE(SUM(budget), 0)").
+		Scan(&totalBudget).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch total budget"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"total_budget": totalBudget})
+}
+func (h *ExpenseHandler) UpdateBudget(c *gin.Context) {
+	log.Println("PUT /expenses/budget called")
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var budgetUpdate struct {
+		FlockID uint    `json:"flock_id"`
+		Budget  float64 `json:"budget"`
+	}
+
+	if err := c.ShouldBindJSON(&budgetUpdate); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
+	}
+
+	err := db.DB.Model(&models.Expense{}).
+		Where("flock_id = ? AND user_id = ?", budgetUpdate.FlockID, userID).
+		Update("budget", budgetUpdate.Budget).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update budget"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Budget updated successfully"})
 }

@@ -23,6 +23,7 @@ func SetupFlockFinancialRoutes(r *gin.Engine) {
 		financialRoutes.GET("/", handler.GetFinancialData)
 		financialRoutes.GET("/flock/:flockID", handler.GetFinancialDataByFlock)
 		financialRoutes.POST("/", handler.AddOrUpdateFinancialData)
+		financialRoutes.PUT("/", handler.UpdateFinancialData)
 		financialRoutes.DELETE("/flock/:flockID", handler.DeleteFinancialData)
 	}
 }
@@ -97,6 +98,37 @@ func (h *FlockFinancialHandler) AddOrUpdateFinancialData(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, financialData)
+}
+
+// UpdateFinancialData updates existing financial data
+func (h *FlockFinancialHandler) UpdateFinancialData(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	userID := userIDVal.(uint)
+
+	var updatedData models.FlocksFinancialData
+	if err := c.ShouldBindJSON(&updatedData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var existingData models.FlocksFinancialData
+	if err := db.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?",
+		updatedData.FlockID, userID, updatedData.Month, updatedData.Year).
+		First(&existingData).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Financial data not found"})
+		return
+	}
+
+	if err := db.DB.Model(&existingData).Updates(updatedData).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update financial data"})
+		return
+	}
+
+	c.JSON(http.StatusOK, existingData)
 }
 
 // DeleteFinancialData removes financial data for a flock

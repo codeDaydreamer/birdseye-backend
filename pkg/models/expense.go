@@ -19,5 +19,3 @@ type Expense struct {
 	// Relationships
 	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"`
 }
-
-

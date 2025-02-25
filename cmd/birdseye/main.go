@@ -125,7 +125,8 @@ func main() {
 		&models.Report{},
 		&models.FlocksFinancialData{},
 		&models.PushSubscription{},
-		&models.Notification{}, // Ensure notifications are migrated
+		&models.Notification{},
+		&models.Budget{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -170,6 +171,7 @@ func main() {
 	api.SetupReportsRoutes(router)
 	api.SetupFlockFinancialRoutes(router)
 	api.SetupNotificationRoutes(router)
+	api.SetupBudgetRoutes(router)
 
 	// WebSocket route
 	router.GET("/ws", handleWebSocket)

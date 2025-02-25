@@ -13,5 +13,6 @@ type FlocksFinancialData struct {
     EggSales   float64 `json:"egg_sales" gorm:"not null"`
     Expenses   float64 `json:"expenses" gorm:"not null"`
     NetRevenue float64 `json:"net_revenue" gorm:"not null"`
+    Budget     float64 `json:"budget" gorm:"not null"`
 }
 
