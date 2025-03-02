@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 	"github.com/gin-gonic/gin"
+	"fmt"
 )
 
 // VaccinationHandler handles vaccination-related requests
@@ -43,6 +44,7 @@ func (h *VaccinationHandler) GetVaccinations(c *gin.Context) {
 
 	c.JSON(http.StatusOK, vaccinations)
 }
+
 func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -50,29 +52,79 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		return
 	}
 
+	// Log the raw JSON request body for debugging
+	var rawData map[string]interface{}
+	if err := c.ShouldBindJSON(&rawData); err != nil {
+		fmt.Println("JSON Bind Error:", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format", "details": err.Error()})
+		return
+	}
+
+	// Print received keys
+	fmt.Println("Received Data Keys:")
+	for key := range rawData {
+		fmt.Println("-", key)
+	}
+
+	// Extracting necessary fields manually to avoid conflicts
 	var vaccination models.Vaccination
-	if err := c.ShouldBindJSON(&vaccination); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	// Required Fields
+	if vaccineName, ok := rawData["vaccine_name"].(string); ok {
+		vaccination.VaccineName = vaccineName
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'vaccine_name'"})
 		return
 	}
 
-	// Manually parse date from string to time.Time
-	parsedDate, err := time.Parse("2006-01-02 15:04:05", c.PostForm("date"))
+	if status, ok := rawData["status"].(string); ok {
+		vaccination.Status = status
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'status'"})
+		return
+	}
+
+	// User ID (Optional, but must be uint)
+	if userID, ok := rawData["user_id"].(float64); ok { // JSON numbers are float64 by default
+		vaccination.UserID = uint(userID)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'user_id'"})
+		return
+	}
+
+	// Date Parsing
+	dateStr, ok := rawData["date"].(string)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'date'"})
+		return
+	}
+	parsedDate, err := time.Parse("2006-01-02 15:04:05", dateStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected 'YYYY-MM-DD HH:MM:SS'"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected 'YYYY-MM-DD HH:MM:SS'", "details": err.Error()})
 		return
 	}
-
 	vaccination.Date = parsedDate
-	vaccination.FlockID = uint(id) // Ensure flock_id is correctly assigned
 
-	if err := db.DB.Create(&vaccination).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination"})
+	// Assign Flock ID from URL, not JSON request
+	vaccination.FlockID = uint(id)
+
+	// Log final struct before saving
+	fmt.Printf("Final Vaccination Object: %+v\n", vaccination)
+
+	// Insert into DB with debugging
+	result := db.DB.Debug().Create(&vaccination)
+	fmt.Println("Rows Affected:", result.RowsAffected)
+
+	if result.Error != nil {
+		fmt.Println("DB Error:", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination", "details": result.Error.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, vaccination)
 }
+
+
 
 
 func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
