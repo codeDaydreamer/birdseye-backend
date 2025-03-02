@@ -19,7 +19,8 @@ type Sale struct {
 	UnitPrice   float64   `json:"unit_price" gorm:"not null"`
 	Amount      float64   `json:"amount" gorm:"not null"`
 	Date        time.Time `json:"date" gorm:"not null"`
-	SaleType    string    `json:"sale_type" gorm:"type:varchar(50);not null"` // ✅ New field added
+	SaleType    string    `json:"sale_type" gorm:"type:varchar(50);not null"`
+	Status      string    `json:"status" gorm:"type:varchar(20);not null;default:'pending'"` // ✅ Added status field
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 
@@ -37,5 +38,8 @@ func GenerateRefNo(userID uint) string {
 // Hook to generate RefNo before creating a sale
 func (s *Sale) BeforeCreate(tx *gorm.DB) (err error) {
 	s.RefNo = GenerateRefNo(s.UserID)
+	if s.Status == "" {
+		s.Status = "pending..." // Default status
+	}
 	return
 }

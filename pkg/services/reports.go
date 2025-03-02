@@ -9,6 +9,8 @@ import (
 	"gorm.io/gorm"
 	"path/filepath"
 	"os"
+	"errors"
+	
 )
 
 // ReportsService handles report generation
@@ -117,4 +119,17 @@ func (r *ReportsService) GenerateInventoryReport(userID uint) (models.Report, er
 	}
 
 	return r.GenerateReport("Inventory", query, formatHTMLFunc, userID)
+}
+func (s *ReportsService) DeleteReport(userID uint, reportID string) error {
+    // Find and delete the report for the given user
+    result := s.DB.Where("id = ? AND user_id = ?", reportID, userID).Delete(&models.Report{})
+    if result.Error != nil {
+        return result.Error
+    }
+
+    if result.RowsAffected == 0 {
+        return errors.New("report not found or unauthorized")
+    }
+
+    return nil
 }
