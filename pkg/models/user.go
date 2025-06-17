@@ -5,6 +5,7 @@ import (
 "golang.org/x/crypto/bcrypt"
 	"birdseye-backend/pkg/db"  // Ensure to import the db package
 	"gorm.io/gorm"
+	"time"
 )
 
 // BillingInfo represents user billing details
@@ -38,10 +39,22 @@ type User struct {
 	Password       string        `json:"password"`
 	ProfilePicture string        `json:"profile_picture"`
 	Contact        string        `json:"contact"`
+	Role           string        `gorm:"default:user" json:"role"`
+	LastLogin     *time.Time    `json:"last_login"`
+	CreatedAt      time.Time     `json:"created_at"`
 	Subscription   Subscription  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
 	BillingInfo    BillingInfo   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
 
+// Admin represents an administrator user
+type Admin struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username  string    `gorm:"unique;not null" json:"username"`
+	Email     string    `gorm:"unique;not null" json:"email"`
+	Password  string    `json:"password"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
 // HashPassword hashes the password using bcrypt
 func (u *User) HashPassword() error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)

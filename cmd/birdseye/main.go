@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"errors"
+	"time"
+	"path/filepath"
 
 	"birdseye-backend/pkg/api"
 	"birdseye-backend/pkg/broadcast"
@@ -26,6 +28,18 @@ var (
 	vapidPublicKey  string
 	vapidPrivateKey string
 )
+
+func loadEnv() {
+	// Get absolute path for the .env file
+	envPath, _ := filepath.Abs("cmd/birdseye/.env")
+
+	fmt.Println("Loading environment variables from:", envPath)
+
+	err := godotenv.Load(envPath)
+	if err != nil {
+		log.Println("Warning: No .env file found, using system environment variables.")
+	}
+}
 
 func generateVAPIDKeys() {
 	privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
@@ -61,11 +75,11 @@ var upgrader = websocket.Upgrader{
 		return true // ⚠️ Allow all origins for WebSocket
 	},
 }
+
 func handleWebSocket(c *gin.Context) {
-	// Extract token from query or headers
 	token := c.GetHeader("Authorization")
 	if token == "" {
-		token = c.Query("token") // Allow token via query param as a fallback
+		token = c.Query("token")
 	}
 
 	if token == "" {
@@ -74,7 +88,6 @@ func handleWebSocket(c *gin.Context) {
 		return
 	}
 
-	// Get the user from the token
 	user, err := middlewares.GetUserFromToken(token)
 	if err != nil {
 		if errors.Is(err, middlewares.ErrTokenExpired) {
@@ -87,32 +100,61 @@ func handleWebSocket(c *gin.Context) {
 		return
 	}
 
-	// Upgrade connection
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("Error upgrading to WebSocket:", err)
 		return
 	}
 
-	// Pass user ID to WebSocket handler
 	broadcast.HandleWebSocket(conn, user.ID)
+}
+
+func startVaccinationReminderTask(vaccinationService *services.VaccinationService) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		var vaccinations []models.Vaccination
+		err := vaccinationService.DB.Where("date > ? AND date < ?", time.Now(), time.Now().Add(14*24*time.Hour)).Find(&vaccinations).Error
+		if err != nil {
+			log.Printf("Error retrieving vaccinations: %v", err)
+			continue
+		}
+		log.Println("Found vaccinations:", vaccinations)
+
+		for _, vaccination := range vaccinations {
+			if time.Now().Before(vaccination.Date.Add(14 * 24 * time.Hour)) {
+				err := vaccinationService.SendVaccinationReminder(&vaccination, vaccination.UserID)
+				if err != nil {
+					log.Printf("Error sending reminder for vaccination %d: %v", vaccination.ID, err)
+				} else {
+					log.Printf("Reminder sent for vaccination %d", vaccination.ID)
+				}
+			} else {
+				log.Printf("Vaccination %d is no longer within the reminder window", vaccination.ID)
+			}
+		}
+	}
 }
 
 func main() {
 	// Load environment variables
-	err := godotenv.Load("/home/palaski-jr/birdseye-backend/.env")
-	if err != nil {
-		log.Println("Warning: No .env file found, using system environment variables.")
-	}
+	loadEnv()
 
 	// Load VAPID keys
 	loadVAPIDKeys()
 
+	// Debug: Check if Google OAuth is loaded
+	fmt.Println("GOOGLE_CLIENT_ID:", os.Getenv("GOOGLE_CLIENT_ID"))
+
+	// Initialize Google OAuth config
+	services.InitGoogleOAuth()
+
 	// Initialize the database
 	db.InitializeDB()
 
-	// AutoMigrate all models
-	err = db.DB.AutoMigrate(
+	// Auto-migrate all models
+	err := db.DB.AutoMigrate(
 		&models.Flock{},
 		&models.User{},
 		&models.EggProduction{},
@@ -127,6 +169,7 @@ func main() {
 		&models.PushSubscription{},
 		&models.Notification{},
 		&models.Budget{},
+		&models.Admin{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -141,27 +184,24 @@ func main() {
 
 	// Enable CORS middleware
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app"},
+		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app","http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
 
-	// Remove proxy restrictions
 	router.SetTrustedProxies(nil)
 
-	// Serve uploaded profile pictures
+	// Serve static files
 	router.Static("/birdseye_backend/uploads", "./uploads")
-
-	// Serve generated reports (e.g., PDFs)
 	router.Static("/pkg/reports/generated", "./pkg/reports/generated")
 
-	// Set up routes
+	// Set up API routes
 	api.SetupInventoryRoutes(router)
 	api.SetupRoutes(router)
-	expenseService := &services.ExpenseService{DB: db.DB} // Ensure DB is assigned
-	api.SetupExpenseRoutes(router, expenseService)       // Pass it to the function
+	expenseService := &services.ExpenseService{DB: db.DB}
+	api.SetupExpenseRoutes(router, expenseService)
 	api.SetupSalesRoutes(router)
 	api.SetupEggProductionRoutes(router)
 	api.SetupFlockRoutes(router)
@@ -172,16 +212,19 @@ func main() {
 	api.SetupFlockFinancialRoutes(router)
 	api.SetupNotificationRoutes(router)
 	api.SetupBudgetRoutes(router)
+	api.SetupStatsRoutes(router)
 
-	// WebSocket route
+
+	// WebSocket routes
 	router.GET("/ws", handleWebSocket)
-	// WebSocket route
 	router.GET("/wss", handleWebSocket)
 
 	// Start WebSocket broadcasting
 	go broadcast.BroadcastMessages()
 
-
+	// Start vaccination reminder background task
+	vaccinationService := services.NewVaccinationService(db.DB)
+	go startVaccinationReminderTask(vaccinationService)
 
 	// Start the server
 	port := os.Getenv("PORT")

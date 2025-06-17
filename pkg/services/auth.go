@@ -19,40 +19,83 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/golang-jwt/jwt/v4"
+	"birdseye-backend/pkg/services/email"
+	
 )
-
-var googleOAuthConfig = &oauth2.Config{
-	ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-	ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-	RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-	Scopes:       []string{"email", "profile"},
-	Endpoint:     google.Endpoint,
-}
+// Google OAuth configuration
+var googleOAuthConfig *oauth2.Config
 
 var ErrTokenExpired = errors.New("token has expired")
+
+
+func InitGoogleOAuth() {
+	clientID := os.Getenv("GOOGLE_CLIENT_ID")
+	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	redirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
+
+	// Debugging: Print environment variable values
+	fmt.Println("Initializing Google OAuth with:")
+	fmt.Println("Client ID:", clientID)
+	fmt.Println("Redirect URL:", redirectURL)
+
+	if clientID == "" || clientSecret == "" || redirectURL == "" {
+		log.Fatal("Missing required Google OAuth environment variables!")
+	}
+
+	googleOAuthConfig = &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+}
+// GetGoogleOAuthConfig returns the Google OAuth configuration
+func GetGoogleOAuthConfig() *oauth2.Config {
+	if googleOAuthConfig == nil {
+		log.Fatal("Google OAuth is not initialized! Call InitGoogleOAuth() first.")
+	}
+	return googleOAuthConfig
+}
 
 // GoogleAuthURL generates the Google OAuth login URL
 func GoogleAuthURL() string {
 	return googleOAuthConfig.AuthCodeURL("random-state-string", oauth2.AccessTypeOffline)
 }
 
+
 // GoogleAuthCallback handles Google's OAuth callback and logs in/registers the user
 func GoogleAuthCallback(code string) (string, *models.User, error) {
 	ctx := context.Background()
 
-	// Exchange the auth code for a token
+	// Debugging: Ensure the OAuth config is set
+	if googleOAuthConfig == nil {
+		log.Println("Google OAuth Config is nil!")
+		return "", nil, errors.New("google oauth configuration is not initialized")
+	}
+
+	fmt.Println("Exchanging authorization code for token...")
+
+	// Exchange the authorization code for an access token
 	token, err := googleOAuthConfig.Exchange(ctx, code)
 	if err != nil {
+		log.Println("Token exchange failed:", err)
 		return "", nil, fmt.Errorf("failed to exchange token: %w", err)
 	}
+
+	fmt.Println("Token successfully exchanged:", token)
 
 	// Fetch user info
 	userInfo, err := fetchGoogleUserInfo(token.AccessToken)
 	if err != nil {
+		log.Println("Fetching user info failed:", err)
 		return "", nil, err
 	}
 
-	// Check if the user exists
+	// Check if the user exists in the database
 	var user models.User
 	if err := db.DB.Where("email = ?", userInfo.Email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -65,9 +108,11 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 			}
 
 			if err := db.DB.Create(&user).Error; err != nil {
+				log.Println("User registration failed:", err)
 				return "", nil, fmt.Errorf("failed to create user: %w", err)
 			}
 		} else {
+			log.Println("Database error:", err)
 			return "", nil, fmt.Errorf("database error: %w", err)
 		}
 	}
@@ -75,11 +120,14 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 	// Generate JWT token
 	tokenString, err := generateJWT(user)
 	if err != nil {
+		log.Println("JWT token generation failed:", err)
 		return "", nil, fmt.Errorf("error generating token: %w", err)
 	}
 
+	fmt.Println("Successfully generated JWT token:", tokenString)
 	return tokenString, &user, nil
 }
+
 
 // fetchGoogleUserInfo retrieves user information from Google
 func fetchGoogleUserInfo(accessToken string) (*GoogleUser, error) {
@@ -120,6 +168,13 @@ func RegisterUser(user *models.User) (*models.User, error) {
 		return nil, fmt.Errorf("error inserting user into database: %w", result.Error)
 	}
 
+	// Send welcome email asynchronously
+	go func() {
+		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
+			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+		}
+	}()
+
 	return user, nil
 }
 
@@ -139,6 +194,13 @@ func LoginUser(identifier, password string) (string, *models.User, error) {
 	if !user.CheckPassword(password) {
 		return "", nil, errors.New("invalid credentials")
 	}
+	now := time.Now()
+user.LastLogin = &now
+
+if err := db.DB.Save(&user).Error; err != nil {
+    log.Printf("Warning: failed to update last login time for user %d: %v", user.ID, err)
+}
+
 
 	// Generate JWT token
 	token, err := generateJWT(user)

@@ -80,6 +80,12 @@ func SendInventoryUpdate(userID uint, eventType string, inventoryItem interface{
 func SendSaleUpdate(userID uint, eventType string, sale interface{}) {
 	sendUpdateToUser(userID, eventType, "sale", sale)
 }
+// SendVaccinationUpdate broadcasts a vaccination update to a specific user
+func SendVaccinationUpdate(userID uint, eventType string, vaccination interface{}) {
+	sendUpdateToUser(userID, eventType, "vaccination", vaccination)
+}
+
+
 
 
 
