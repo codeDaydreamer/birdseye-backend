@@ -4,68 +4,51 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 )
 
-// Structs for Brevo email request
-type EmailRequest struct {
-	Sender      Sender      `json:"sender"`
-	To          []Recipient `json:"to"`
-	Subject     string      `json:"subject"`
-	HtmlContent string      `json:"htmlContent"`
+// SMTP2GoRequest defines the payload for sending email
+type SMTP2GoRequest struct {
+	Sender   string   `json:"sender"`
+	To       []string `json:"to"`
+	Subject  string   `json:"subject"`
+	HtmlBody string   `json:"html_body,omitempty"`
+	TextBody string   `json:"text_body,omitempty"`
 }
 
-type Sender struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-}
-
-type Recipient struct {
-	Email string `json:"email"`
-}
-
-// sendEmail sends an email via the Brevo API
-func sendEmail(to, subject, htmlBody string) error {
-	apiKey := os.Getenv("BREVO_API_KEY")
+// SendEmail sends an email using the SMTP2GO API
+func SendEmail(to, subject, htmlBody string) error {
+	apiKey := os.Getenv("SMTP2GO_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("brevo api  key is missing")
+		return fmt.Errorf("SMTP2GO API key is missing")
 	}
 
-	// Brevo API endpoint
-	url := "https://api.brevo.com/v3/smtp/email"
+	url := "https://api.smtp2go.com/v3/email/send"
 
-	// Construct email request payload
-	emailReq := EmailRequest{
-		Sender: Sender{
-			Email: "noreply@birdseye-poultry.com", // Replace with your sender email
-			Name:  "Birdseye Poultry",
-		},
-		To: []Recipient{
-			{Email: to},
-		},
-		Subject:    subject,
-		HtmlContent: htmlBody,
+	emailReq := SMTP2GoRequest{
+		Sender:   "kevin@816-dynamics.com", // Must be verified in your SMTP2GO dashboard
+		To:       []string{to},
+		Subject:  subject,
+		HtmlBody: htmlBody,
+		TextBody: "Thank you for using Birdseye Poultry.",
 	}
 
-	// Marshal the email request into JSON
 	data, err := json.Marshal(emailReq)
 	if err != nil {
-		return fmt.Errorf("failed to marshal email request: %w", err)
+		return fmt.Errorf("failed to marshal email payload: %w", err)
 	}
 
-	// Create the POST request
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set necessary headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api-key", apiKey)
+	req.Header.Set("X-Smtp2go-Api-Key", apiKey)
+	req.Header.Set("Accept", "application/json")
 
-	// Send the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -73,19 +56,15 @@ func sendEmail(to, subject, htmlBody string) error {
 	}
 	defer resp.Body.Close()
 
-	// Read the response body for additional information
-	respBody, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Check for successful response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("failed to send email, status code: %d, response: %s", resp.StatusCode, string(respBody))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("email failed: status %d - %s", resp.StatusCode, string(body))
 	}
 
-	// Log the response body for further analysis
-	fmt.Printf("Email sent successfully. Response: %s\n", string(respBody))
-
+	fmt.Printf("✅ Email sent successfully. Response: %s\n", string(body))
 	return nil
 }

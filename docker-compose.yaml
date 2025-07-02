@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: birdseye-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: newpassword
+      MYSQL_DATABASE: birdseye_db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: newpassword
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"  # Host port 3307 mapped to container 3306
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: birdseye-server
+    restart: unless-stopped
+    env_file:
+      - cmd/birdseye/.env
+    ports:
+      - "8080:8080"  # Host port 8080 mapped to container 8080
+    depends_on:
+      - mysql
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 100M
+    ports:
+      - "8081:80"  # Host port 8081 mapped to phpmyadmin container port 80
+    depends_on:
+      - mysql
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    ports:
+      - "8082:8080"  # Host 8082 -> container 8080 (cadvisor's default)
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  nginx:
+    image: nginx:alpine
+    container_name: birdseye-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8083:80"  # Avoid port conflicts by using a unique port (e.g., 8083)
+    depends_on:
+      - backend
+      - phpmyadmin
+      - cadvisor
+
+volumes:
+  mysql_data:
+    driver: local

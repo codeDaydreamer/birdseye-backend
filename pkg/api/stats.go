@@ -1,10 +1,10 @@
 package api
 
 import (
-	"fmt"
+
 	"net/http"
 	"time"
-
+	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 
@@ -27,7 +27,10 @@ type StatResponse struct {
 }
 
 func SetupStatsRoutes(r *gin.Engine) {
-	r.GET("/admin/stats", GetStats)
+	adminGroup := r.Group("/admin")
+	adminGroup.Use(middlewares.AdminAuthMiddleware()) 
+
+	adminGroup.GET("/stats", GetStats)
 }
 
 func GetStats(c *gin.Context) {
@@ -73,14 +76,14 @@ func GetStats(c *gin.Context) {
 
 	// put into a map first
 	loginMap := make(map[string]int64)
-	fmt.Println("Raw rows from DB:")
+	
 	for rows.Next() {
 		var item DailyLoginCount
 		if err := rows.Scan(&item.Date, &item.Count); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		fmt.Printf("-> %s: %d\n", item.Date, item.Count)
+		
 
 		// trim to just "YYYY-MM-DD" in case it's a datetime
 		dateStr := item.Date
@@ -90,10 +93,6 @@ func GetStats(c *gin.Context) {
 		loginMap[dateStr] = item.Count
 	}
 
-	fmt.Println("Login map after grouping:")
-	for k, v := range loginMap {
-		fmt.Printf("%s => %d\n", k, v)
-	}
 
 	// now fill in all days in range in order
 	var dailyTrend []DailyLoginCount
@@ -107,10 +106,7 @@ func GetStats(c *gin.Context) {
 		dailyTrend = append(dailyTrend, DailyLoginCount{Date: dateStr, Count: count})
 	}
 
-	fmt.Println("Final Daily Trend:")
-	for _, d := range dailyTrend {
-		fmt.Printf("%s: %d\n", d.Date, d.Count)
-	}
+
 
 	// Return all in a single JSON
 	c.JSON(http.StatusOK, StatResponse{

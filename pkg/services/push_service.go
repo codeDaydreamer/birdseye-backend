@@ -19,7 +19,7 @@ func (s *PushService) SaveSubscription(sub *models.PushSubscription) error {
     if err := s.db.Where("user_id = ?", sub.UserID).First(&existing).Error; err == nil {
         // Update existing subscription
         existing.Endpoint = sub.Endpoint
-        existing.P256dh = sub.P256dh
+        existing.P256DH = sub.P256DH
         existing.Auth = sub.Auth
         return s.db.Save(&existing).Error
     }

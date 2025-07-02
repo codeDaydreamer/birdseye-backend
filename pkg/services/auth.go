@@ -115,6 +115,12 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 			log.Println("Database error:", err)
 			return "", nil, fmt.Errorf("database error: %w", err)
 		}
+		// Send welcome email asynchronously
+	go func() {
+		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
+			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+		}
+	}()
 	}
 
 	// Generate JWT token
@@ -279,22 +285,29 @@ func GetUserFromToken(tokenString string) (*models.User, error) {
 	return user, nil
 }
 
-// GetUserByID retrieves a user by their ID from the database
 func GetUserByID(userID uint) (*models.User, error) {
 	var user models.User
 
-	// Fetch the user from the database using the provided userID
-	if err := db.DB.First(&user, userID).Error; err != nil {
+	// Preload Subscription and BillingInfo associations
+	if err := db.DB.
+		Preload("Subscription").
+		Preload("BillingInfo").
+		First(&user, userID).Error; err != nil {
+		
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Return a more specific error when the user is not found
 			return nil, fmt.Errorf("user with ID %d not found", userID)
 		}
-		// Handle other types of errors (like DB connection issues)
 		return nil, fmt.Errorf("error retrieving user: %w", err)
 	}
 
+	// Set computed trial fields for JSON response (assuming you added these fields in struct)
+	user.TrialEndsAt = user.ComputeTrialEndsAt()
+	user.IsTrialActive = user.ComputeIsTrialActive()
+
+
 	return &user, nil
 }
+
 
 // ChangePassword updates the user's password after verifying the current password
 func ChangePassword(userID uint, currentPassword, newPassword string) error { // userID is now uint

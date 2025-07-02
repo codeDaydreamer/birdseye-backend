@@ -2,10 +2,11 @@ package models
 
 import (
 	"fmt"
-"golang.org/x/crypto/bcrypt"
-	"birdseye-backend/pkg/db"  // Ensure to import the db package
-	"gorm.io/gorm"
 	"time"
+
+	"birdseye-backend/pkg/db" // Ensure to import the db package
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // BillingInfo represents user billing details
@@ -23,27 +24,32 @@ type BillingInfo struct {
 
 // Subscription represents user subscription details
 type Subscription struct {
-	ID           int    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       int    `gorm:"uniqueIndex" json:"user_id"`
-	Plan         string `json:"plan"`
-	Status       string `json:"status"`
-	ExpiryDate   string `json:"expiry_date"`
-	PaymentMethod string `json:"payment_method"`
+	ID            int        `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID        int        `gorm:"uniqueIndex" json:"user_id"`
+	Plan          string     `json:"plan"`
+	Status        string     `json:"status"`
+	ExpiryDate    *time.Time `json:"expiry_date"`
+	PaymentMethod string     `json:"payment_method"`
 }
 
 // User represents a system user
 type User struct {
-	ID             uint          `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username       string        `gorm:"unique;not null" json:"username"`
-	Email          string        `gorm:"unique;not null" json:"email"`
-	Password       string        `json:"password"`
-	ProfilePicture string        `json:"profile_picture"`
-	Contact        string        `json:"contact"`
-	Role           string        `gorm:"default:user" json:"role"`
-	LastLogin     *time.Time    `json:"last_login"`
-	CreatedAt      time.Time     `json:"created_at"`
-	Subscription   Subscription  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
-	BillingInfo    BillingInfo   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
+	ID             uint         `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username       string       `gorm:"unique;not null" json:"username"`
+	Email          string       `gorm:"unique;not null" json:"email"`
+	Password       string       `json:"password"`
+	ProfilePicture string       `json:"profile_picture"`
+	Contact        string       `json:"contact"`
+	Role           string       `gorm:"default:user" json:"role"`
+	LastLogin      *time.Time   `json:"last_login"`
+	Status         string       `gorm:"default:active" json:"status"` // Default status is active
+	CreatedAt      time.Time    `json:"created_at"`
+	TrialEndsAt   time.Time `gorm:"-" json:"trial_ends_at"`
+	IsTrialActive bool      `gorm:"-" json:"is_trial_active"`
+
+
+	Subscription Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
+	BillingInfo  BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
 
 // Admin represents an administrator user
@@ -54,7 +60,9 @@ type Admin struct {
 	Password  string    `json:"password"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Role      string    `gorm:"default:admin" json:"role"` // Default role is admin
 }
+
 // HashPassword hashes the password using bcrypt
 func (u *User) HashPassword() error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
@@ -85,3 +93,13 @@ func GetUserByID(userID uint) (*User, error) {
 
 	return &user, nil
 }
+
+// Rename methods to avoid conflict:
+func (u *User) ComputeTrialEndsAt() time.Time {
+	return u.CreatedAt.AddDate(0, 0, 14)
+}
+
+func (u *User) ComputeIsTrialActive() bool {
+	return time.Now().Before(u.ComputeTrialEndsAt())
+}
+

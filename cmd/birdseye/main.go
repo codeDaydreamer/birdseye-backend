@@ -109,6 +109,35 @@ func handleWebSocket(c *gin.Context) {
 	broadcast.HandleWebSocket(conn, user.ID)
 }
 
+// Uptime tracking
+var serverStartTime = time.Now()
+
+func getUptime() string {
+	duration := time.Since(serverStartTime)
+	hours := int(duration.Hours())
+	minutes := int(duration.Minutes()) % 60
+	seconds := int(duration.Seconds()) % 60
+
+	return fmt.Sprintf("%02dh:%02dm:%02ds", hours, minutes, seconds)
+}
+
+func checkDBConnection() bool {
+	sqlDB, err := db.DB.DB()
+	if err != nil {
+		log.Println("Failed to get DB connection:", err)
+		return false
+	}
+
+	err = sqlDB.Ping()
+	if err != nil {
+		log.Println("Database ping failed:", err)
+		return false
+	}
+
+	return true
+}
+
+
 func startVaccinationReminderTask(vaccinationService *services.VaccinationService) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -182,6 +211,7 @@ func main() {
 	// Initialize Gin router
 	router := gin.Default()
 
+
 	// Enable CORS middleware
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app","http://localhost:3000"},
@@ -219,6 +249,9 @@ func main() {
 	router.GET("/ws", handleWebSocket)
 	router.GET("/wss", handleWebSocket)
 
+	router.POST("/api/push/subscribe", middlewares.AuthMiddleware(), api.HandlePushSubscription)
+
+
 	// Start WebSocket broadcasting
 	go broadcast.BroadcastMessages()
 
@@ -232,6 +265,32 @@ func main() {
 		port = "8080"
 	}
 
-	fmt.Printf("Starting Birdseye Backend on port %s...\n", port)
+		fmt.Printf("Starting Birdseye Backend on port %s...\n", port)
+
+	// Health check endpoint
+	router.GET("/ping", func(c *gin.Context) {
+	dbHealthy := checkDBConnection()
+
+	status := "ok"
+	if !dbHealthy {
+		status = "degraded"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status": status,
+		"uptime": getUptime(),
+		"database": gin.H{
+			"connected": dbHealthy,
+		},
+		"google_oauth": gin.H{
+			"client_id_loaded": os.Getenv("GOOGLE_CLIENT_ID") != "",
+		},
+	})
+
+})
+
+
+	// 🚀 Start the server
 	log.Fatal(router.Run(":" + port))
 }
+
+

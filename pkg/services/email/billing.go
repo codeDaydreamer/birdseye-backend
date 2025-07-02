@@ -2,14 +2,19 @@ package email
 
 import "fmt"
 
-func SendInvoiceEmail(toEmail, name, invoiceURL string) error {
-	subject := "Your Birdseye Invoice is Ready"
+// SendBillingEmail sends a billing-related email to the user
+func SendBillingEmail(toEmail, name string, amount float64, dueDate string, tillNumber string) error {
+	subject := "Birdseye Billing Notice – Action Required"
+
 	body := fmt.Sprintf(`
 		<h2>Hi %s,</h2>
-		<p>Thank you for using Birdseye.</p>
-		<p>Your invoice is available here: <a href="%s">View Invoice</a></p>
-		<p>If you have any questions, feel free to reach out.</p>
-	`, name, invoiceURL)
+		<p>We hope your poultry management is going smoothly.</p>
+		<p>This is a reminder that a payment of <strong>Ksh %.2f</strong> is due. To avoid interruption of service, please complete your payment by <strong>%s</strong>.</p>
+		<p>You can pay via M-PESA TILL number <strong>%s</strong>.</p>
+		<p>If you've already made the payment, kindly ignore this message. Otherwise, feel free to <a href="https://wa.me/254750109154">contact our support team on WhatsApp</a> if you need help.</p>
+		<p>Thank you for choosing Birdseye Poultry!</p>
+		<p>– The Birdseye Team 🐓</p>
+	`, name, amount, dueDate, tillNumber)
 
-	return sendEmail(toEmail, subject, body)
+	return SendEmail(toEmail, subject, body)
 }

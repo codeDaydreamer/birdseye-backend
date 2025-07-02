@@ -42,15 +42,48 @@ func SetupRoutes(router *gin.Engine) {
 	// Admin protected routes
 	admin := router.Group("/admin")
 	admin.Use(middlewares.AuthMiddleware(), middlewares.AdminAuthMiddleware())
+	admin.GET("/me", handleGetAdminProfile)
 
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/user/:id", handleAdminGetUserByID)
 	admin.PUT("/user/:id", handleAdminUpdateUser)
 	admin.DELETE("/user/:id", handleAdminDeleteUser)
+	admin.POST("/create-user", handleAdminCreateUser)
+	admin.PUT("/user/:id/reset-password", handleAdminResetUserPassword)
+
+
 }
 
 
 // ---------- HANDLER FUNCTIONS ----------
+func handleGetAdminProfile(c *gin.Context) {
+	// Get admin ID from context (set by middleware)
+	adminID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin not found in context"})
+		return
+	}
+
+	// Fetch admin details from the database (using a service method)
+	admin, err := services.GetAdminByID(adminID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching admin from database"})
+		return
+	}
+
+	log.Printf("Admin data fetched from database: %+v", admin)
+
+	// Return only safe/sanitized admin data (exclude sensitive info)
+	sanitizedAdmin := gin.H{
+		"id":       admin.ID,
+		"username": admin.Username,
+		"email":    admin.Email,
+		// add other fields you want to expose here
+	}
+
+	c.JSON(http.StatusOK, gin.H{"admin": sanitizedAdmin})
+}
+
 // Handle admin registration
 func handleAdminRegistration(c *gin.Context) {
 	var admin models.Admin  // Assuming you have a separate Admin model
@@ -213,15 +246,22 @@ func handleGetUserProfile(c *gin.Context) {
 
 	log.Printf("User data fetched from database: %+v", user)
 
-	sanitizedUser := gin.H{
-		"id":             user.ID,
-		"username":       user.Username,
-		"email":          user.Email,
+	c.JSON(http.StatusOK, gin.H{
+	"user": gin.H{
+		"id":              user.ID,
+		"username":        user.Username,
+		"email":           user.Email,
 		"profile_picture": user.ProfilePicture,
-		"contact":        user.Contact,
-	}
+		"contact":         user.Contact,
+		"subscription":   user.Subscription,
+		"billing_info":    user.BillingInfo,
+		"status":			user.Status,
+		"created_at":		user.CreatedAt,	
+		"trial_ends_at":   user.ComputeTrialEndsAt(),
+		"is_trial_active": user.ComputeIsTrialActive(),
+	},
+})
 
-	c.JSON(http.StatusOK, gin.H{"user": sanitizedUser})
 }
 
 // Handle updating user profile
@@ -361,28 +401,38 @@ func handleAdminGetUserByID(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	c.JSON(http.StatusOK, gin.H{
+	"user": gin.H{
+		"id":              user.ID,
+		"username":        user.Username,
+		"email":           user.Email,
+		"profile_picture": user.ProfilePicture,
+		"contact":         user.Contact,
+		"subscription":   user.Subscription,
+		"billing_info":    user.BillingInfo,
+	},
+})
+
 }
 
 func handleAdminUpdateUser(c *gin.Context) {
 	id := c.Param("id")
-	var updateData struct {
-		Username string `json:"username"`
-		Email    string `json:"email"`
-		Contact  string `json:"contact"`
-		// Add other fields as needed
-	}
+
+	var updateData map[string]interface{}
 	if err := c.ShouldBindJSON(&updateData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid update data"})
 		return
 	}
-	updatedUser, err := services.AdminUpdateUserByID(id, updateData.Username, updateData.Email, updateData.Contact)
+
+	updatedUser, err := services.AdminUpdateUserByID(id, updateData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"user": updatedUser})
 }
+
 
 func handleAdminDeleteUser(c *gin.Context) {
 	id := c.Param("id")

@@ -12,49 +12,42 @@ import (
 	"birdseye-backend/pkg/models"
 )
 
-// Global variable for JWT secret
 var JWTSecret string
-
-// ErrTokenExpired is the error returned when the token has expired
 var ErrTokenExpired = errors.New("token has expired")
 
-// InitAuthMiddleware initializes the secret key globally
 func InitAuthMiddleware() {
 	JWTSecret = os.Getenv("JWT_SECRET")
 	if JWTSecret == "" {
 		panic("Error: JWT_SECRET is not set in environment variables.")
 	}
 }
-// AuthMiddleware ensures requests are authenticated using JWT
+
 func AuthMiddleware() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        token := c.GetHeader("Authorization")
-        if token == "" {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
-            c.Abort()
-            return
-        }
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
+			c.Abort()
+			return
+		}
 
-        // Get the user ID from the token
-        user, err := GetUserFromToken(token)
-        if err != nil {
-            if errors.Is(err, ErrTokenExpired) {
-                c.JSON(http.StatusUnauthorized, gin.H{"error": "Token expired, please log in again"})
-            } else {
-                c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: " + err.Error()})
-            }
-            c.Abort()
-            return
-        }
+		user, err := GetUserFromToken(token)
+		if err != nil {
+			if errors.Is(err, ErrTokenExpired) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token expired, please log in again"})
+			} else {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: " + err.Error()})
+			}
+			c.Abort()
+			return
+		}
 
-        // Attach user ID to context for later use
-        c.Set("user_id", user.ID)
-        c.Next()
-    }
+		c.Set("user_id", user.ID)
+		c.Set("role", user.Role)
+		c.Next()
+	}
 }
 
-
-// GetUserFromToken extracts user data from JWT token and checks for expiration
 func GetUserFromToken(tokenString string) (*models.User, error) {
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 	if tokenString == "" {
@@ -83,28 +76,42 @@ func GetUserFromToken(tokenString string) (*models.User, error) {
 
 	user := &models.User{}
 
-	// Extract ID safely and convert it to uint if it's int
-	if id, ok := claims["id"].(float64); ok {
-		user.ID = uint(id) // Convert from float64 to uint
-	} else if id, ok := claims["id"].(int); ok {
-		user.ID = uint(id) // If it's an int, convert it to uint
+	// ✅ Accept both "id" and "admin_id"
+	var idRaw interface{}
+	if idVal, ok := claims["id"]; ok {
+		idRaw = idVal
+	} else if adminID, ok := claims["admin_id"]; ok {
+		idRaw = adminID
 	} else {
 		return nil, errors.New("invalid user ID in token")
 	}
 
-// Check if token is expired
-if exp, ok := claims["exp"].(float64); ok {
-    if time.Now().After(time.Unix(int64(exp), 0)) {
-        return nil, ErrTokenExpired // Token has expired
-    }
-} else {
-    return nil, errors.New("missing exp claim in token")
-}
+	switch v := idRaw.(type) {
+	case float64:
+		user.ID = uint(v)
+	case int:
+		user.ID = uint(v)
+	default:
+		return nil, errors.New("invalid user ID format")
+	}
 
+	// ✅ Check expiration
+	if exp, ok := claims["exp"].(float64); ok {
+		if time.Now().After(time.Unix(int64(exp), 0)) {
+			return nil, ErrTokenExpired
+		}
+	} else {
+		return nil, errors.New("missing exp claim in token")
+	}
 
-	// Extract email
+	// Optional: Extract email
 	if email, ok := claims["email"].(string); ok {
 		user.Email = email
+	}
+
+	// ✅ Extract role
+	if role, ok := claims["role"].(string); ok {
+		user.Role = role
 	}
 
 	return user, nil
@@ -137,6 +144,7 @@ func AdminAuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("user_id", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }
