@@ -28,7 +28,7 @@ func SendEmail(to, subject, htmlBody string) error {
 	url := "https://api.smtp2go.com/v3/email/send"
 
 	emailReq := SMTP2GoRequest{
-		Sender:   "kevin@816-dynamics.com", // Must be verified in your SMTP2GO dashboard
+		Sender:   "birdseye-poultry@816-dynamics.com", 
 		To:       []string{to},
 		Subject:  subject,
 		HtmlBody: htmlBody,
@@ -65,6 +65,6 @@ func SendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("email failed: status %d - %s", resp.StatusCode, string(body))
 	}
 
-	fmt.Printf("✅ Email sent successfully. Response: %s\n", string(body))
+	fmt.Printf("Email sent successfully. Response: %s\n", string(body))
 	return nil
 }

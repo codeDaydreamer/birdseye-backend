@@ -13,13 +13,18 @@ import (
 	"net/http"
 	"os"
 	"time"
-
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
+	"crypto/rand"
+	"encoding/base64"
 
 	"github.com/golang-jwt/jwt/v4"
 	"birdseye-backend/pkg/services/email"
+	"strings"
+
+	"github.com/go-sql-driver/mysql" 
 	
 )
 // Google OAuth configuration
@@ -33,10 +38,7 @@ func InitGoogleOAuth() {
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	redirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
 
-	// Debugging: Print environment variable values
-	fmt.Println("Initializing Google OAuth with:")
-	fmt.Println("Client ID:", clientID)
-	fmt.Println("Redirect URL:", redirectURL)
+	
 
 	if clientID == "" || clientSecret == "" || redirectURL == "" {
 		log.Fatal("Missing required Google OAuth environment variables!")
@@ -77,7 +79,7 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 		return "", nil, errors.New("google oauth configuration is not initialized")
 	}
 
-	fmt.Println("Exchanging authorization code for token...")
+	
 
 	// Exchange the authorization code for an access token
 	token, err := googleOAuthConfig.Exchange(ctx, code)
@@ -163,26 +165,80 @@ type GoogleUser struct {
 	Name    string `json:"name"`
 	Picture string `json:"picture"`
 }
+func generateOTP(length int) (string, error) {
+	bytes := make([]byte, length)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(bytes)[:length], nil
+}
+func GenerateAndSendOTP(user *models.User) error {
+	otp, err := generateOTP(6)
+	if err != nil {
+		return fmt.Errorf("failed to generate OTP: %w", err)
+	}
 
-// RegisterUser registers a new user in the database
+	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otp), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash OTP: %w", err)
+	}
+
+	expiry := time.Now().Add(15 * time.Minute)
+
+	user.OTPHashed = string(hashedOTP)
+	user.OTPExpiresAt = &expiry 
+
+	if err := db.DB.Save(user).Error; err != nil {
+		return fmt.Errorf("failed to update user with OTP: %w", err)
+	}
+
+	go func() {
+		if err := email.SendOTPEmail(user.Email, user.Username, otp); err != nil {
+			log.Printf("failed to send OTP email to %s: %v", user.Email, err)
+		}
+	}()
+
+	return nil
+}
+
+
+
+
+
 func RegisterUser(user *models.User) (*models.User, error) {
 	if err := user.HashPassword(); err != nil {
 		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
 
 	if result := db.DB.Create(user); result.Error != nil {
-		return nil, fmt.Errorf("error inserting user into database: %w", result.Error)
+		err := result.Error
+
+		// Check if error is a MySQL duplicate entry error
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			// Inspect error message for which unique key failed
+			errMsg := mysqlErr.Message
+			if strings.Contains(errMsg, "uni_users_username") {
+				return nil, errors.New("username is already taken")
+			}
+			if strings.Contains(errMsg, "uni_users_email") {
+				return nil, errors.New("email is already registered")
+			}
+			return nil, errors.New("duplicate entry error")
+		}
+
+		return nil, fmt.Errorf("error inserting user into database: %w", err)
 	}
 
-	// Send welcome email asynchronously
-	go func() {
-		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
-			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
-		}
-	}()
+	if err := GenerateAndSendOTP(user); err != nil {
+		return nil, err
+	}
 
 	return user, nil
 }
+
+
 
 // LoginUser authenticates a user using either email or username and returns a JWT token
 func LoginUser(identifier, password string) (string, *models.User, error) {

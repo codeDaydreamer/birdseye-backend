@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+	"birdseye-backend/pkg/services/email"
 )
 
 var (
@@ -33,7 +34,7 @@ func loadEnv() {
 	// Get absolute path for the .env file
 	envPath, _ := filepath.Abs("cmd/birdseye/.env")
 
-	fmt.Println("Loading environment variables from:", envPath)
+	
 
 	err := godotenv.Load(envPath)
 	if err != nil {
@@ -47,8 +48,7 @@ func generateVAPIDKeys() {
 		log.Fatalf("Error generating VAPID keys: %v", err)
 	}
 
-	fmt.Println("Generated VAPID Public Key:", publicKey)
-	fmt.Println("Generated VAPID Private Key:", privateKey)
+	
 
 	// Save these keys as environment variables
 	os.Setenv("VAPID_PUBLIC_KEY", publicKey)
@@ -66,8 +66,7 @@ func loadVAPIDKeys() {
 		vapidPrivateKey = os.Getenv("VAPID_PRIVATE_KEY")
 	}
 
-	fmt.Println("Using VAPID Public Key:", vapidPublicKey)
-	fmt.Println("Using VAPID Private Key:", vapidPrivateKey)
+	
 }
 
 var upgrader = websocket.Upgrader{
@@ -139,25 +138,42 @@ func checkDBConnection() bool {
 
 
 func startVaccinationReminderTask(vaccinationService *services.VaccinationService) {
-	ticker := time.NewTicker(24 * time.Hour)
+	ticker := time.NewTicker(48 * time.Hour) // Run every 48 hours
 	defer ticker.Stop()
 
 	for range ticker.C {
+		now := time.Now()
 		var vaccinations []models.Vaccination
-		err := vaccinationService.DB.Where("date > ? AND date < ?", time.Now(), time.Now().Add(14*24*time.Hour)).Find(&vaccinations).Error
+
+		err := vaccinationService.DB.Where("date > ? AND date < ?", now, now.Add(14*24*time.Hour)).Find(&vaccinations).Error
 		if err != nil {
 			log.Printf("Error retrieving vaccinations: %v", err)
 			continue
 		}
+
 		log.Println("Found vaccinations:", vaccinations)
 
 		for _, vaccination := range vaccinations {
-			if time.Now().Before(vaccination.Date.Add(14 * 24 * time.Hour)) {
+			if now.Before(vaccination.Date.Add(14 * 24 * time.Hour)) {
 				err := vaccinationService.SendVaccinationReminder(&vaccination, vaccination.UserID)
 				if err != nil {
 					log.Printf("Error sending reminder for vaccination %d: %v", vaccination.ID, err)
+					continue
+				}
+
+				// Get user info (assuming you have a method to fetch user by ID)
+				user, err := services.GetUserByID(vaccination.UserID)
+				if err != nil {
+					log.Printf("Error fetching user for vaccination %d: %v", vaccination.ID, err)
+					continue
+				}
+
+				// Send vaccination reminder email using email package function
+				err = email.SendVaccinationReminderEmail(user.Email, user.Username, &vaccination)
+				if err != nil {
+					log.Printf("Error sending email for vaccination %d: %v", vaccination.ID, err)
 				} else {
-					log.Printf("Reminder sent for vaccination %d", vaccination.ID)
+					log.Printf("Vaccination reminder email sent for vaccination %d", vaccination.ID)
 				}
 			} else {
 				log.Printf("Vaccination %d is no longer within the reminder window", vaccination.ID)
@@ -166,15 +182,17 @@ func startVaccinationReminderTask(vaccinationService *services.VaccinationServic
 	}
 }
 
+
 func main() {
+	
+	 gin.SetMode(gin.ReleaseMode) 
 	// Load environment variables
 	loadEnv()
 
 	// Load VAPID keys
 	loadVAPIDKeys()
 
-	// Debug: Check if Google OAuth is loaded
-	fmt.Println("GOOGLE_CLIENT_ID:", os.Getenv("GOOGLE_CLIENT_ID"))
+	
 
 	// Initialize Google OAuth config
 	services.InitGoogleOAuth()

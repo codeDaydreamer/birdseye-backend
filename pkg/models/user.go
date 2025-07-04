@@ -46,6 +46,11 @@ type User struct {
 	CreatedAt      time.Time    `json:"created_at"`
 	TrialEndsAt   time.Time `gorm:"-" json:"trial_ends_at"`
 	IsTrialActive bool      `gorm:"-" json:"is_trial_active"`
+	OTP          string     `gorm:"-" json:"-"` // You may choose to store this temporarily in DB or skip
+	OTPHashed    string     `json:"-"` // Store hashed OTP
+	OTPExpiresAt *time.Time `json:"-"`
+
+	EmailVerified bool       `gorm:"default:false" json:"email_verified"` // Default is false
 
 
 	Subscription Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`

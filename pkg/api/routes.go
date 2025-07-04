@@ -13,6 +13,8 @@ import (
 	"birdseye-backend/pkg/services"
 	"golang.org/x/oauth2"
 	"birdseye-backend/pkg/db"
+	"golang.org/x/crypto/bcrypt"
+	"birdseye-backend/pkg/services/email"
 )
 
 // SetupRoutes sets up all the API routes
@@ -25,6 +27,10 @@ func SetupRoutes(router *gin.Engine) {
 		auth.POST("/login", handleUserLogin)
 		auth.GET("/google/callback", handleGoogleCallback)
 		auth.GET("/google/login", handleGoogleLogin)
+		auth.POST("/verify-otp", handleVerifyOTP)
+		auth.POST("/resend-otp", handleResendOTP)
+
+
 
 		// Protected user routes
 		protected := auth.Group("/")
@@ -56,6 +62,85 @@ func SetupRoutes(router *gin.Engine) {
 
 
 // ---------- HANDLER FUNCTIONS ----------
+func handleVerifyOTP(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+		OTP   string `json:"otp"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	if user.OTPExpiresAt == nil || time.Now().After(*user.OTPExpiresAt) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "OTP has expired"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.OTPHashed), []byte(req.OTP)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
+		return
+	}
+
+	// Mark email as verified and clear OTP fields
+	user.EmailVerified = true
+	user.OTPHashed = ""
+	user.OTPExpiresAt = nil
+
+	if err := db.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	// Send welcome email asynchronously
+	go func() {
+		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
+			log.Printf("Failed to send welcome email to %s: %v", user.Email, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"message": "OTP verified successfully"})
+}
+
+func handleResendOTP(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil || req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request. Email is required."})
+		return
+	}
+
+	// Look up user by email
+	var user models.User
+	if err := db.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	//Skip resend if already verified
+	 if user.EmailVerified {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email already verified"})
+	 	return
+	 }
+
+	// Generate + send new OTP
+	if err := services.GenerateAndSendOTP(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resend OTP"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "OTP has been resent to your email"})
+}
+
+
 func handleGetAdminProfile(c *gin.Context) {
 	// Get admin ID from context (set by middleware)
 	adminID, exists := c.Get("user_id")
@@ -259,6 +344,7 @@ func handleGetUserProfile(c *gin.Context) {
 		"created_at":		user.CreatedAt,	
 		"trial_ends_at":   user.ComputeTrialEndsAt(),
 		"is_trial_active": user.ComputeIsTrialActive(),
+		"email_verified": user.EmailVerified,
 	},
 })
 

@@ -4,7 +4,7 @@ import "fmt"
 
 // SendWelcomeEmail sends a beautifully formatted welcome email to a new user
 func SendWelcomeEmail(toEmail, name string) error {
-	subject := "🎉 Welcome to Birdseye Poultry!"
+	subject := "🎉 Welcome to Birdseye Poultry – Your Trial Starts Now!"
 
 	body := fmt.Sprintf(`
 		<!DOCTYPE html>
@@ -16,15 +16,15 @@ func SendWelcomeEmail(toEmail, name string) error {
 			<style>
 				body {
 					font-family: Arial, sans-serif;
-					background-color:rgb(170, 245, 255);
+					background-color: #e0f7fa;
 					color: #333;
-					padding: 0;
 					margin: 0;
+					padding: 0;
 				}
 				.container {
 					max-width: 600px;
 					margin: 40px auto;
-					background: white;
+					background: #fff;
 					border-radius: 10px;
 					box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 					overflow: hidden;
@@ -42,23 +42,30 @@ func SendWelcomeEmail(toEmail, name string) error {
 				.content {
 					padding: 24px;
 					font-size: 16px;
-					line-height: 1.6;
+					line-height: 1.7;
 				}
 				.footer {
 					padding: 20px;
-					font-size: 14px;
+					font-size: 13px;
 					text-align: center;
-					color: #666;
+					color: #555;
 					background-color: #f1f5f9;
 				}
 				a.button {
 					display: inline-block;
 					margin-top: 20px;
-					padding: 10px 20px;
+					padding: 12px 24px;
 					background-color: #10b981;
 					color: white;
 					text-decoration: none;
-					border-radius: 5px;
+					border-radius: 6px;
+					font-weight: bold;
+				}
+				a.whatsapp {
+					display: inline-block;
+					margin-top: 15px;
+					color: #25D366;
+					text-decoration: none;
 					font-weight: bold;
 				}
 				@media (max-width: 600px) {
@@ -78,16 +85,23 @@ func SendWelcomeEmail(toEmail, name string) error {
 				</div>
 				<div class="content">
 					<p>Hi %s,</p>
-					<p>Welcome to <strong>Birdseye Poultry</strong> — your smart assistant for managing flocks, tracking egg production, recording expenses, and gaining insights all in one dashboard.</p>
-					<p>We’re excited to have you join our growing community of modern farmers.</p>
-					<p>If you ever need a hand or have questions, just reply to this email or reach out via WhatsApp:</p>
-					<p><a href="https://wa.me/254750109154">+254 750 109 154</a></p>
-					<a href="https://app.birdseye-poultry.com/auth" class="button">Get Started</a>
-					<p style="margin-top: 30px;">Happy farming! 🐣</p>
-					<p>Warm regards,<br><strong>Kevin</strong><br>Developer, 816 Dynamics</p>
+					<p>We're so glad you're here! 🎉 You've officially started your <strong>14-day free trial</strong> of <strong>Birdseye Poultry Manager</strong>.</p>
+					<p>With Birdseye, you can:</p>
+					<ul>
+						<li>📊 Track egg production and sales</li>
+						<li>🧾 Record expenses & income easily</li>
+						<li>📅 Monitor flock performance</li>
+						<li>📈 View insights from one smart dashboard</li>
+					</ul>
+					<p>Need help getting started or have questions?</p>
+					<p><a href="https://wa.me/254750109154" class="whatsapp">💬 Chat with us on WhatsApp</a></p>
+					<a href="https://app.birdseye-poultry.com/auth" class="button">Launch Your Dashboard</a>
+					<p style="margin-top: 30px;">We’re rooting for you! 🐣</p>
+					<p>Warmly,<br><strong>Kevin</strong><br>Developer, 816 Dynamics</p>
 				</div>
 				<div class="footer">
 					<p>&copy; 2025 Birdseye Poultry. All rights reserved.</p>
+					<p>A proud product of <strong>816 Dynamics</strong> – empowering modern agriculture with smart software solutions.</p>
 				</div>
 			</div>
 		</body>
