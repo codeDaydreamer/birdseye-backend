@@ -22,6 +22,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"birdseye-backend/pkg/services/email"
+	
 	"strings"
 
 	"github.com/go-sql-driver/mysql" 
@@ -356,13 +357,16 @@ func GetUserByID(userID uint) (*models.User, error) {
 		return nil, fmt.Errorf("error retrieving user: %w", err)
 	}
 
-	// Set computed trial fields for JSON response (assuming you added these fields in struct)
+	// Set computed trial fields
 	user.TrialEndsAt = user.ComputeTrialEndsAt()
 	user.IsTrialActive = user.ComputeIsTrialActive()
 
+	// Check subscription status on the user instance
+	_ = EvaluateSubscriptionStatus(&user)
 
 	return &user, nil
 }
+
 
 
 // ChangePassword updates the user's password after verifying the current password
@@ -390,7 +394,7 @@ func ChangePassword(userID uint, currentPassword, newPassword string) error { //
 }
 
 // UpdateUserProfile updates user information
-func UpdateUserProfile(userID uint, username, email, contact string) (*models.User, error) { // userID is now uint
+func UpdateUserProfile(userID uint, username, email, phonenumber string) (*models.User, error) { // userID is now uint
 	var user models.User
 
 	if err := db.DB.First(&user, userID).Error; err != nil {
@@ -400,7 +404,7 @@ func UpdateUserProfile(userID uint, username, email, contact string) (*models.Us
 	// Update user information
 	user.Username = username
 	user.Email = email
-	user.Contact = contact
+	user.PhoneNumber = phonenumber
 
 	if err := db.DB.Save(&user).Error; err != nil {
 		return nil, fmt.Errorf("error updating user profile: %w", err)

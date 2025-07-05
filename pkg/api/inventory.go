@@ -27,7 +27,7 @@ func SetupInventoryRoutes(r *gin.Engine) {
 }
 // GetInventory retrieves inventory records for the authenticated user, including flock names
 func (h *InventoryHandler) GetInventory(c *gin.Context) {
-	log.Println("GET /inventory called")
+	
 
 	// Fetch user ID from the context
 	userIDVal, exists := c.Get("user_id")

@@ -39,7 +39,7 @@ type User struct {
 	Email          string       `gorm:"unique;not null" json:"email"`
 	Password       string       `json:"password"`
 	ProfilePicture string       `json:"profile_picture"`
-	Contact        string       `json:"contact"`
+	PhoneNumber    string       `json:"phone_number"`
 	Role           string       `gorm:"default:user" json:"role"`
 	LastLogin      *time.Time   `json:"last_login"`
 	Status         string       `gorm:"default:active" json:"status"` // Default status is active
@@ -49,7 +49,8 @@ type User struct {
 	OTP          string     `gorm:"-" json:"-"` // You may choose to store this temporarily in DB or skip
 	OTPHashed    string     `json:"-"` // Store hashed OTP
 	OTPExpiresAt *time.Time `json:"-"`
-
+	UpdatedAt      time.Time    `json:"updated_at"`
+	NeedsSubscriptionRenewal bool `gorm:"-" json:"needs_subscription_renewal"`
 	EmailVerified bool       `gorm:"default:false" json:"email_verified"` // Default is false
 
 

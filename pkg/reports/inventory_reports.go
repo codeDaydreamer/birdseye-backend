@@ -84,7 +84,7 @@ func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.T
 		DateRange:      fmt.Sprintf("As of %s", endDate.Format("2006-01-02")),
 		User:           user.Username,
 		Email:          user.Email,
-		Contact:        user.Contact,
+		Contact:        user.PhoneNumber,
 		Summary:        fmt.Sprintf("Total inventory value: %s", formatCurrency(totalValue)),
 		InventoryItems: formattedInventory,
 		TotalValue:     formatCurrency(totalValue),

@@ -185,7 +185,7 @@ func startVaccinationReminderTask(vaccinationService *services.VaccinationServic
 
 func main() {
 	
-	 gin.SetMode(gin.ReleaseMode) 
+	 //gin.SetMode(gin.ReleaseMode) 
 	// Load environment variables
 	loadEnv()
 
@@ -196,6 +196,8 @@ func main() {
 
 	// Initialize Google OAuth config
 	services.InitGoogleOAuth()
+
+	services.InitDynapayClient()
 
 	// Initialize the database
 	db.InitializeDB()
@@ -217,6 +219,7 @@ func main() {
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
+		&models.Payment{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -232,7 +235,7 @@ func main() {
 
 	// Enable CORS middleware
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app","http://localhost:3000"},
+		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app","http://localhost:3000","http://localhost:8081"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -261,6 +264,8 @@ func main() {
 	api.SetupNotificationRoutes(router)
 	api.SetupBudgetRoutes(router)
 	api.SetupStatsRoutes(router)
+	api.RegisterPaymentRoutes(router)
+	api.RegisterWebhookRoutes(router)
 
 
 	// WebSocket routes

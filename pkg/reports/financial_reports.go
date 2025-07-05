@@ -129,7 +129,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 		Year:          currentYear,
 		User:          user.Username,
 		Email:         user.Email,
-		Contact:       user.Contact,
+		Contact:       user.PhoneNumber,
 		Summary:       fmt.Sprintf("Total revenue: %s, Egg sales: %s, Expenses: %s, Net revenue: %s", formatCurrency(totalRevenue), formatCurrency(totalEggSales), formatCurrency(totalExpenses), formatCurrency(totalNetRevenue)),
 		FinancialData:   formattedFinancialData,
 		TotalRevenue:    formatCurrency(totalRevenue),

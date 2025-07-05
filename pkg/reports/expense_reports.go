@@ -111,7 +111,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		DateRange:       fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
 		User:            user.Username,
 		Email:           user.Email,
-		Contact:         user.Contact,
+		Contact:         user.PhoneNumber,
 		Summary:         fmt.Sprintf("Total expenses recorded: %s", formatCurrency(totalAmount)),
 		Expenses:        formattedExpenses,
 		CategorySummary: categorySummary,

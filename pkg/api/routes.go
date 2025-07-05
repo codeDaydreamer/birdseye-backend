@@ -337,7 +337,7 @@ func handleGetUserProfile(c *gin.Context) {
 		"username":        user.Username,
 		"email":           user.Email,
 		"profile_picture": user.ProfilePicture,
-		"contact":         user.Contact,
+		"phone_number":         user.PhoneNumber,
 		"subscription":   user.Subscription,
 		"billing_info":    user.BillingInfo,
 		"status":			user.Status,
@@ -367,7 +367,7 @@ func handleUpdateProfile(c *gin.Context) {
 	var updateRequest struct {
 		Username string `json:"username"`
 		Email    string `json:"email"`
-		Contact  string `json:"contact"`
+		PhoneNumber  string `json:"phone_number"`
 	}
 
 	if err := c.ShouldBindJSON(&updateRequest); err != nil {
@@ -377,7 +377,7 @@ func handleUpdateProfile(c *gin.Context) {
 
 	log.Printf("Updating user profile with: %+v", updateRequest)
 
-	updatedUser, err := services.UpdateUserProfile(user.ID, updateRequest.Username, updateRequest.Email, updateRequest.Contact)
+	updatedUser, err := services.UpdateUserProfile(user.ID, updateRequest.Username, updateRequest.Email, updateRequest.PhoneNumber)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -493,7 +493,7 @@ func handleAdminGetUserByID(c *gin.Context) {
 		"username":        user.Username,
 		"email":           user.Email,
 		"profile_picture": user.ProfilePicture,
-		"contact":         user.Contact,
+		"phone_number":         user.PhoneNumber,
 		"subscription":   user.Subscription,
 		"billing_info":    user.BillingInfo,
 	},

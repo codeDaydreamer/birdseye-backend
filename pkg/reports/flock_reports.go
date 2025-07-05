@@ -100,7 +100,7 @@ func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 		DateRange:       fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
 		User:            user.Username,
 		Email:           user.Email,
-		Contact:         user.Contact,
+		Contact:         user.PhoneNumber,
 		Summary:         fmt.Sprintf("Total birds: %d", totalBirds),
 		Flocks:          flockSummaries,
 		TotalBirds:      totalBirds,

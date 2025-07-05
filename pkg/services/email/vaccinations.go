@@ -1,9 +1,8 @@
 package email
 
 import (
-	"fmt"
-	
 	"birdseye-backend/pkg/models"
+	"fmt"
 )
 
 // SendVaccinationReminderEmail sends a nicely formatted vaccination reminder email to the user

@@ -144,7 +144,7 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 		DateRange:      fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
 		User:           user.Username,
 		Email:          user.Email,
-		Contact:        user.Contact,
+		Contact:        user.PhoneNumber,
 		Summary:        fmt.Sprintf("Total eggs collected: %d", totalEggs),
 		EggProductions: formattedProductions,
 		FlockSummaries: flockSummaries,
