@@ -235,7 +235,7 @@ func main() {
 
 	// Enable CORS middleware
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "https://birdseye-client.vercel.app","http://localhost:3000","http://localhost:8081"},
+		AllowOrigins:     []string{"http://localhost:5173", "https://app.birdseye-poultry.com"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

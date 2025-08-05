@@ -102,7 +102,7 @@ func GetUserByID(userID uint) (*User, error) {
 
 // Rename methods to avoid conflict:
 func (u *User) ComputeTrialEndsAt() time.Time {
-	return u.CreatedAt.AddDate(0, 0, 14)
+	return u.CreatedAt.AddDate(0, 0, 30)
 }
 
 func (u *User) ComputeIsTrialActive() bool {
