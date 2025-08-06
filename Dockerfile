@@ -29,12 +29,10 @@ WORKDIR /root/
 # Copy the compiled binary from builder
 COPY --from=build /app/server .
 
-# Copy wait script
-COPY wait-for-mysql.sh /wait-for-mysql.sh
-RUN chmod +x /wait-for-mysql.sh
+
 
 # Expose the port your Go server uses
 EXPOSE 8080
 
 # Run the app
-CMD ["/wait-for-mysql.sh","./server"]
+CMD ["./server"]
