@@ -304,11 +304,11 @@ func handleGoogleCallback(c *gin.Context) {
 	// Get frontend URL from environment variable or use default
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:5173" // Change this if needed
+		frontendURL = "https://app.birdseye-poultry.com" // Change this if needed
 	}
 
 	// Redirect user to frontend with token
-	redirectURL := fmt.Sprintf("http://localhost:5173/?token=%s",  token)
+	redirectURL := fmt.Sprintf("https://app.birdseye-poultry.com/?token=%s",  token)
 	log.Println("Redirecting to frontend with token:", redirectURL)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }

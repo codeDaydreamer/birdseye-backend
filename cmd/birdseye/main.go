@@ -220,6 +220,7 @@ func main() {
 		&models.Budget{},
 		&models.Admin{},
 		&models.Payment{},
+		&models.EggAdjustment{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -235,7 +236,7 @@ func main() {
 
 	// Enable CORS middleware
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "https://app.birdseye-poultry.com"},
+		AllowOrigins:     []string{"http://localhost:5173", "https://app.birdseye-poultry.com", "https://www.app.birdseye-poultry.com"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -266,6 +267,7 @@ func main() {
 	api.SetupStatsRoutes(router)
 	api.RegisterPaymentRoutes(router)
 	api.RegisterWebhookRoutes(router)
+	api.SetupEggAdjustmentRoutes(router)
 
 
 	// WebSocket routes
@@ -288,7 +290,7 @@ func main() {
 		port = "8080"
 	}
 
-		fmt.Printf("Starting Birdseye Backend on port %s...\n", port)
+		fmt.Printf("🚀 Starting Birdseye Backend on port %s...\n", port)
 
 	// Health check endpoint
 	router.GET("/ping", func(c *gin.Context) {

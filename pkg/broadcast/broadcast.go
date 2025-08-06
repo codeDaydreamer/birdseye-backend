@@ -64,22 +64,32 @@ func BroadcastMessages() {
 func SendFlockUpdate(userID uint, eventType string, flock interface{}) {
 	sendUpdateToUser(userID, eventType, "flock", flock)
 }
+
 // SendEggProductionUpdate broadcasts an egg production update to a specific user
 func SendEggProductionUpdate(userID uint, eventType string, record interface{}) {
 	sendUpdateToUser(userID, eventType, "egg_production", record)
 }
+
+// SendEggAdjustmentUpdate broadcasts an egg adjustment update to a specific user
+func SendEggAdjustmentUpdate(userID uint, eventType string, adjustment interface{}) {
+	sendUpdateToUser(userID, eventType, "egg_adjustment", adjustment)
+}
+
 // SendExpenseUpdate broadcasts an expense update to a specific user
 func SendExpenseUpdate(userID uint, eventType string, expense interface{}) {
 	sendUpdateToUser(userID, eventType, "expense", expense)
 }
+
 // SendInventoryUpdate broadcasts an inventory update to a specific user
 func SendInventoryUpdate(userID uint, eventType string, inventoryItem interface{}) {
 	sendUpdateToUser(userID, eventType, "inventory", inventoryItem)
 }
+
 // SendSaleUpdate broadcasts a sale update to a specific user
 func SendSaleUpdate(userID uint, eventType string, sale interface{}) {
 	sendUpdateToUser(userID, eventType, "sale", sale)
 }
+
 // SendVaccinationUpdate broadcasts a vaccination update to a specific user
 func SendVaccinationUpdate(userID uint, eventType string, vaccination interface{}) {
 	sendUpdateToUser(userID, eventType, "vaccination", vaccination)
