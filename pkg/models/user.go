@@ -42,21 +42,24 @@ type User struct {
 	PhoneNumber    string       `json:"phone_number"`
 	Role           string       `gorm:"default:user" json:"role"`
 	LastLogin      *time.Time   `json:"last_login"`
-	Status         string       `gorm:"default:active" json:"status"` // Default status is active
+	Status         string       `gorm:"default:active" json:"status"`
 	CreatedAt      time.Time    `json:"created_at"`
-	TrialEndsAt   time.Time `gorm:"-" json:"trial_ends_at"`
-	IsTrialActive bool      `gorm:"-" json:"is_trial_active"`
-	OTP          string     `gorm:"-" json:"-"` // You may choose to store this temporarily in DB or skip
-	OTPHashed    string     `json:"-"` // Store hashed OTP
-	OTPExpiresAt *time.Time `json:"-"`
 	UpdatedAt      time.Time    `json:"updated_at"`
-	NeedsSubscriptionRenewal bool `gorm:"-" json:"needs_subscription_renewal"`
-	EmailVerified bool       `gorm:"default:false" json:"email_verified"` // Default is false
 
+	PaymentStatus  string       `gorm:"default:'unpaid'" json:"payment_status"` // New field
+
+	TrialEndsAt    time.Time    `gorm:"-" json:"trial_ends_at"`
+	IsTrialActive  bool         `json:"is_trial_active"`
+	OTP            string       `gorm:"-" json:"-"`
+	OTPHashed      string       `json:"-"`
+	OTPExpiresAt   *time.Time   `json:"-"`
+	NeedsSubscriptionRenewal bool `gorm:"-" json:"needs_subscription_renewal"`
+	EmailVerified  bool         `gorm:"default:false" json:"email_verified"`
 
 	Subscription Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
 	BillingInfo  BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
+
 
 // Admin represents an administrator user
 type Admin struct {

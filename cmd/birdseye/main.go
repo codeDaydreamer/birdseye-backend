@@ -268,6 +268,7 @@ func main() {
 	api.RegisterPaymentRoutes(router)
 	api.RegisterWebhookRoutes(router)
 	api.SetupEggAdjustmentRoutes(router)
+	api.SetupPaystackRoutes(router, db.DB)
 
 
 	// WebSocket routes

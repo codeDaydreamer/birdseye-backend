@@ -123,8 +123,7 @@ func HandleDynapayWebhook(c *gin.Context) {
 		MerchantRequestID:  payload.MerchantRequestID,
 		CheckoutRequestID:  payload.CheckoutRequestID,
 		ResultDescription:  payload.ResultDescription,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		
 	}
 
 	if err := db.DB.Create(&payment).Error; err != nil {

@@ -345,27 +345,56 @@ func GetUserFromToken(tokenString string) (*models.User, error) {
 func GetUserByID(userID uint) (*models.User, error) {
 	var user models.User
 
-	// Preload Subscription and BillingInfo associations
-	if err := db.DB.
-		Preload("Subscription").
-		Preload("BillingInfo").
-		First(&user, userID).Error; err != nil {
-		
+	// Fetch user by ID
+	if err := db.DB.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("user with ID %d not found", userID)
 		}
 		return nil, fmt.Errorf("error retrieving user: %w", err)
 	}
 
-	// Set computed trial fields
-	user.TrialEndsAt = user.ComputeTrialEndsAt()
-	user.IsTrialActive = user.ComputeIsTrialActive()
+	// Calculate trial end date from CreatedAt
+	trialEndsAt := user.CreatedAt.AddDate(0, 0, 30)
+	isTrialActive := time.Now().Before(trialEndsAt)
 
-	// Check subscription status on the user instance
-	_ = EvaluateSubscriptionStatus(&user)
+	// Update IsTrialActive if needed
+	if user.IsTrialActive != isTrialActive {
+		user.IsTrialActive = isTrialActive
+		if err := db.DB.Model(&user).Update("is_trial_active", isTrialActive).Error; err != nil {
+			return nil, fmt.Errorf("failed to update trial status: %w", err)
+		}
+	}
+
+	// If not on trial, check last payment date
+	if !isTrialActive {
+		var lastPayment models.Payment
+		err := db.DB.
+			Where("user_id = ? AND status = ?", user.ID, "success").
+			Order("paid_at DESC").
+			First(&lastPayment).Error
+
+		if err == nil {
+			// Check if last paid_at is older than 36 days
+			cutoffDate := time.Now().AddDate(0, 0, -36)
+			if lastPayment.PaidAt.Time.Before(cutoffDate) && user.PaymentStatus != "unpaid" {
+				user.PaymentStatus = "unpaid"
+				if err := db.DB.Model(&user).Update("payment_status", "unpaid").Error; err != nil {
+					return nil, fmt.Errorf("failed to update payment status: %w", err)
+				}
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("failed to fetch last payment: %w", err)
+		}
+	}
+
+	// Set computed field
+	user.TrialEndsAt = trialEndsAt
 
 	return &user, nil
 }
+
+
+
 
 
 
