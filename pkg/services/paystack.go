@@ -48,7 +48,6 @@ type InitTransactionResponse struct {
 	} `json:"data"`
 }
 
-// In InitializeTransaction method, set CallbackURL before marshaling
 func (s *PaystackService) InitializeTransaction(req InitTransactionRequest) (*InitTransactionResponse, error) {
 	if req.Email == "" || req.Amount <= 0 || req.Reference == "" {
 		return nil, errors.New("email, amount, and reference are required")
@@ -63,13 +62,25 @@ func (s *PaystackService) InitializeTransaction(req InitTransactionRequest) (*In
 		return nil, fmt.Errorf("payment with reference '%s' already exists", req.Reference)
 	}
 
-	// Hardcode the callback URL here:
+	// Hardcode the callback URL here
 	req.CallbackURL = "https://www.app.birdseye-poultry.com/paystack-callback"
+	cancelURL := req.CallbackURL // use same for cancel
+
+	// Create payload with metadata
+	payload := map[string]interface{}{
+		"email":        req.Email,
+		"amount":       req.Amount,
+		"reference":    req.Reference,
+		"callback_url": req.CallbackURL,
+		"metadata": map[string]string{
+			"cancel_action": cancelURL,
+		},
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
 
 	url := "https://api.paystack.co/transaction/initialize"
-	payload, _ := json.Marshal(req)
-
-	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return nil, err
 	}
