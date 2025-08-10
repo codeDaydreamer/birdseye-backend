@@ -15,4 +15,5 @@ type Vaccination struct {
 	Status     string    `json:"status" gorm:"not null"`
 	CreatedAt  time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt  time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	Period    string    `json:"period" ` // e.g., "monthly", "yearly"
 }
