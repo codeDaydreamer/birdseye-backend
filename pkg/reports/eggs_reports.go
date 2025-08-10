@@ -207,73 +207,67 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 
 
 func generateEggProductionChart(values []chart.Value) (string, error) {
-	log.Println("Rendering egg production chart...")
+    log.Println("Rendering egg production chart...")
 
-	// If there's only one flock, ensure it has valid data
-	if len(values) == 1 && values[0].Value == 0 {
-		log.Println("Chart generation skipped: Single flock has zero data")
-		return "", fmt.Errorf("invalid data range; cannot be zero")
-	}
+    // Always ensure at least one value exists
+    if len(values) == 0 {
+        values = []chart.Value{{Label: "No Data", Value: 0}}
+    }
 
-	// Ensure there is at least one non-zero value
-	hasValidData := false
-	var maxValue float64
-	for _, v := range values {
-		if v.Value > 0 {
-			hasValidData = true
-			if v.Value > maxValue {
-				maxValue = v.Value
-			}
-		}
-	}
+    // Ensure labels are informative
+    for i := range values {
+        values[i].Label = fmt.Sprintf("%s\n(%d eggs)", values[i].Label, int(values[i].Value))
+    }
 
-	if !hasValidData {
-		log.Println("Chart generation skipped: No valid data points")
-		return "", fmt.Errorf("invalid data range; cannot be zero")
-	}
+    // Find max value, default to 1 if all zeros (so chart still renders)
+    var maxValue float64
+    for _, v := range values {
+        if v.Value > maxValue {
+            maxValue = v.Value
+        }
+    }
+    if maxValue == 0 {
+        maxValue = 1
+    }
 
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/egg_production_chart.png")
+    baseDir, _ := os.Getwd()
+    chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/egg_production_chart.png")
 
-	for i := range values {
-		values[i].Label = fmt.Sprintf("%s\n(%d eggs)", values[i].Label, int(values[i].Value))
-	}
+    graph := chart.BarChart{
+        Title:    "Egg Production by Flock",
+        TitleStyle: chart.Style{
+            FontSize:  10,
+            FontColor: chart.ColorBlack,
+            Padding: chart.Box{
+                Top:    1,
+                Bottom: 20,
+                Left:   10,
+                Right:  10,
+            },
+            TextWrap: chart.TextWrapWord,
+        },
+        Width:    800,
+        Height:   500,
+        BarWidth: 40,
+        Bars:     values,
+        YAxis: chart.YAxis{
+            Range: &chart.ContinuousRange{
+                Min: 0,
+                Max: maxValue * 1.1,
+            },
+        },
+    }
 
-	graph := chart.BarChart{
-		Title:    "Egg Production by Flock",
-		TitleStyle: chart.Style{
-			FontSize:  10,
-			FontColor: chart.ColorBlack,
-			Padding: chart.Box{
-				Top:    1,
-				Bottom: 20,
-				Left:   10,
-				Right:  10,
-			},
-			TextWrap: chart.TextWrapWord,
-		},
-		Width:    800,
-		Height:   500,
-		BarWidth: 40,
-		Bars:     values,
-		YAxis: chart.YAxis{
-			Range: &chart.ContinuousRange{
-				Min: 0,      // Start Y-axis at 0
-				Max: maxValue * 1.1, // Scale up slightly to avoid crowding
-			},
-		},
-	}
+    file, err := os.Create(chartImagePath)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
 
-	file, err := os.Create(chartImagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
+    if err := graph.Render(chart.PNG, file); err != nil {
+        return "", err
+    }
 
-	if err := graph.Render(chart.PNG, file); err != nil {
-		return "", err
-	}
-
-	log.Println("Egg production chart saved at:", chartImagePath)
-	return chartImagePath, nil
+    log.Println("Egg production chart saved at:", chartImagePath)
+    return chartImagePath, nil
 }

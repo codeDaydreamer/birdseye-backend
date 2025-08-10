@@ -180,82 +180,69 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 }
 
 func generateExpenseChart(values []chart.Value) (string, error) {
-	log.Println("Rendering expense chart...")
+    log.Println("Rendering expense chart...")
 
-	// Define output file path.
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/expense_chart.png")
+    // Always ensure at least one value exists
+    if len(values) == 0 {
+        values = []chart.Value{{Label: "No Data", Value: 0}}
+    }
 
-	// Format labels with currency representation.
-	for i := range values {
-		values[i].Label = fmt.Sprintf("%s\n(%s)", values[i].Label, formatCurrency(values[i].Value))
-	}
+    // Add detailed labels (e.g., include currency)
+    for i := range values {
+        values[i].Label = fmt.Sprintf("%s\n($%.2f)", values[i].Label, values[i].Value)
+    }
 
-	// Create the bar chart.
-	graph := chart.BarChart{
-		Title: "Expense Breakdown by Category",
-		TitleStyle: chart.Style{
-			FontSize:  10, // Slightly larger for emphasis
-			FontColor: chart.ColorBlack,
-			Padding: chart.Box{
-				Top:    1, // Adds space above the title
-				Bottom: 20, // Adds space below to avoid overlap
-				Left:   10,
-				Right:  10,
-			},
-			TextWrap: chart.TextWrapWord, // Ensures text doesn’t overflow
-		},
-		Background: chart.Style{
-			Padding: chart.Box{
-				Top:    30,
-				Bottom: 30,
-				Left:   50,  // More space for y-axis labels
-				Right:  30,
-			},
-		},
-		Width:    800, // ✅ Wider chart to fit well in the report
-		Height:   500, // ✅ Maintains aspect ratio
-		BarWidth: 40,  // ✅ Adjusted for better spacing
-		Bars:     values,
-		XAxis: chart.Style{
-			FontSize:  11, // ✅ Larger for print clarity
-			FontColor: chart.ColorBlack,
-		},
-		YAxis: chart.YAxis{
-			Name: "Amount (KES)",
-			NameStyle: chart.Style{
-				FontSize:  11,
-				FontColor: chart.ColorBlack,
-			},
-			Style: chart.Style{
-				StrokeColor: chart.ColorBlack,
-			},
-			GridMajorStyle: chart.Style{
-				StrokeColor: chart.ColorLightGray,
-				StrokeWidth: 1.0,
-			},
-			Range: &chart.ContinuousRange{
-				Min: 0, // Ensures y-axis starts from zero
-			},
-		},
-	}
+    // Find max value, default to 1 if all zeros
+    var maxValue float64
+    for _, v := range values {
+        if v.Value > maxValue {
+            maxValue = v.Value
+        }
+    }
+    if maxValue == 0 {
+        maxValue = 1
+    }
 
-	// Create the file for output.
-	file, err := os.Create(chartImagePath)
-	if err != nil {
-		log.Println("Error creating chart file:", err)
-		return "", err
-	}
-	defer file.Close()
+    baseDir, _ := os.Getwd()
+    chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/expense_chart.png")
 
-	// Render the chart as a PNG file.
-	if err := graph.Render(chart.PNG, file); err != nil {
-		log.Println("Error rendering chart:", err)
-		return "", err
-	}
+    graph := chart.BarChart{
+        Title:    "Expenses by Category",
+        TitleStyle: chart.Style{
+            FontSize:  10,
+            FontColor: chart.ColorBlack,
+            Padding: chart.Box{
+                Top:    1,
+                Bottom: 20,
+                Left:   10,
+                Right:  10,
+            },
+            TextWrap: chart.TextWrapWord,
+        },
+        Width:    800,
+        Height:   500,
+        BarWidth: 40,
+        Bars:     values,
+        YAxis: chart.YAxis{
+            Range: &chart.ContinuousRange{
+                Min: 0,
+                Max: maxValue * 1.1, // add headroom
+            },
+        },
+    }
 
-	log.Println("Expense chart saved at:", chartImagePath)
-	return chartImagePath, nil
+    file, err := os.Create(chartImagePath)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+
+    if err := graph.Render(chart.PNG, file); err != nil {
+        return "", err
+    }
+
+    log.Println("Expense chart saved at:", chartImagePath)
+    return chartImagePath, nil
 }
 
 func formatCurrency(amount float64) string {

@@ -191,16 +191,21 @@ func (h *ReportsHandler) GenerateSalesReport(c *gin.Context) {
 }
 
 func (h *ReportsHandler) GenerateEggProductionReport(c *gin.Context) {
+	logrus.Info("GenerateEggProductionReport called")
+
 	// Get userID from authentication middleware
 	userID, exists := c.Get("user_id")
 	if !exists {
+		logrus.Warn("user_id missing in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authorized"})
 		return
 	}
+	logrus.Infof("Authenticated user ID from context: %v", userID)
 
 	// Convert userID to uint
 	authUserID, ok := userID.(uint)
 	if !ok {
+		logrus.Errorf("Invalid user ID type: %T", userID)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
 		return
 	}
@@ -213,12 +218,15 @@ func (h *ReportsHandler) GenerateEggProductionReport(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
+		logrus.Errorf("Failed to parse request JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 		return
 	}
+	logrus.Infof("Request JSON parsed: %+v", request)
 
 	// Ensure the request user matches the authenticated user
 	if request.UserID != authUserID {
+		logrus.Warnf("User ID mismatch: request.UserID=%d, authUserID=%d", request.UserID, authUserID)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized user ID"})
 		return
 	}
@@ -226,22 +234,28 @@ func (h *ReportsHandler) GenerateEggProductionReport(c *gin.Context) {
 	// Convert string dates from ISO 8601 to `time.Time`
 	startDate, err := time.Parse(time.RFC3339, request.StartDate)
 	if err != nil {
+		logrus.Errorf("Invalid start date format: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start date format"})
 		return
 	}
 
 	endDate, err := time.Parse(time.RFC3339, request.EndDate)
 	if err != nil {
+		logrus.Errorf("Invalid end date format: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end date format"})
 		return
 	}
+	logrus.Infof("Parsed dates - StartDate: %v, EndDate: %v", startDate, endDate)
 
 	// Generate the egg production report
 	pdfPath, err := reports.GenerateEggProductionReport(db.DB, authUserID, startDate, endDate)
 	if err != nil {
+		logrus.Errorf("Failed to generate egg production report: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return
 	}
+
+	logrus.Infof("Egg production report generated at: %s", pdfPath)
 
 	// Send the file as response
 	c.File(pdfPath)

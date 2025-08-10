@@ -181,43 +181,47 @@ func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate 
 	graph := chart.Chart{
 		Title: "Sales Trend Over Time",
 		TitleStyle: chart.Style{
-			FontSize:  12,
+			FontSize:  14,
 			FontColor: chart.ColorBlack,
 		},
-		Width:  800,
-		Height: 500,
+		Width:     800,
+		Height:    500,
+		Background: chart.Style{
+			Padding: chart.Box{
+				Top:  40,
+				Left: 20,
+			},
+		},
 		Series: []chart.Series{
 			chart.TimeSeries{
 				Name:    "Sales Amount",
 				XValues: xValues,
 				YValues: yValues,
 				Style: chart.Style{
-				
 					StrokeColor: chart.ColorBlue,
 					StrokeWidth: 2,
 				},
 			},
 		},
 		XAxis: chart.XAxis{
-			Name: "Date",
-			Style: chart.Style{
-				
-			},
+			Name:      "Date",
 			TickPosition: chart.TickPositionBetweenTicks,
 		},
 		YAxis: chart.YAxis{
 			Name: "Sales Amount",
-			Style: chart.Style{
-				
-			},
 		},
 	}
 
+	// Safely create file
 	file, err := os.Create(chartImagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create chart file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			log.Println("Failed to close file:", cerr)
+		}
+	}()
 
 	if err := graph.Render(chart.PNG, file); err != nil {
 		return "", fmt.Errorf("failed to render chart: %w", err)

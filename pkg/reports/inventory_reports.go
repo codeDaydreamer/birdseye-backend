@@ -144,28 +144,67 @@ func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.T
 }
 
 func generateInventoryChart(values []chart.Value) (string, error) {
-	log.Println("Rendering inventory chart...")
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/inventory_chart.png")
+    log.Println("Rendering inventory chart...")
 
-	graph := chart.BarChart{
-		Title: "Inventory Levels",
-		Width:  800,
-		Height: 500,
-		BarWidth: 40,
-		Bars:  values,
-	}
+    // Ensure at least one value exists
+    if len(values) == 0 {
+        values = []chart.Value{{Label: "No Data", Value: 0}}
+    }
 
-	file, err := os.Create(chartImagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
+    // Make labels more descriptive
+    for i := range values {
+        values[i].Label = fmt.Sprintf("%s\n(%.0f units)", values[i].Label, values[i].Value)
+    }
 
-	if err := graph.Render(chart.PNG, file); err != nil {
-		return "", err
-	}
+    // Find max value for proper Y-axis scaling
+    var maxValue float64
+    for _, v := range values {
+        if v.Value > maxValue {
+            maxValue = v.Value
+        }
+    }
+    if maxValue == 0 {
+        maxValue = 1
+    }
 
-	log.Println("Inventory chart saved at:", chartImagePath)
-	return chartImagePath, nil
+    baseDir, _ := os.Getwd()
+    chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/inventory_chart.png")
+
+    graph := chart.BarChart{
+        Title: "Inventory Levels",
+        TitleStyle: chart.Style{
+            FontSize:  10,
+            FontColor: chart.ColorBlack,
+            Padding: chart.Box{
+                Top:    1,
+                Bottom: 20,
+                Left:   10,
+                Right:  10,
+            },
+            TextWrap: chart.TextWrapWord,
+        },
+        Width:    800,
+        Height:   500,
+        BarWidth: 40,
+        Bars:     values,
+        YAxis: chart.YAxis{
+            Range: &chart.ContinuousRange{
+                Min: 0,
+                Max: maxValue * 1.1,
+            },
+        },
+    }
+
+    file, err := os.Create(chartImagePath)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+
+    if err := graph.Render(chart.PNG, file); err != nil {
+        return "", err
+    }
+
+    log.Println("Inventory chart saved at:", chartImagePath)
+    return chartImagePath, nil
 }
