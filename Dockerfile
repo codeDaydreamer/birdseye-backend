@@ -12,34 +12,29 @@ COPY . .
 
 RUN go build -o server ./cmd/birdseye/main.go
 
-# Stage 2: Run
-FROM alpine:latest
+# Stage 2: Run (Debian-based)
+FROM python:3.11-slim
 
-# Install dependencies for WeasyPrint + ca-certificates + tzdata + python3 + pip
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    cairo-dev \
-    pango-dev \
-    gdk-pixbuf-dev \
+# Install system dependencies required by WeasyPrint and certificates/timezone
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libgdk-pixbuf2.0-dev \
     libffi-dev \
-    musl-dev \
-    build-base \
-    cairo \
-    pango \
-    gdk-pixbuf \
+    tzdata \
     ca-certificates \
-    tzdata
+    && rm -rf /var/lib/apt/lists/*
 
 # Install WeasyPrint via pip
-RUN pip3 install --no-cache-dir weasyprint
+RUN pip install --no-cache-dir weasyprint
 
 WORKDIR /root/
 
-# Copy the compiled binary
+# Copy compiled Go server binary from build stage
 COPY --from=build /app/server .
 
-# Copy the templates folder from build stage
+# Copy templates folder from build stage
 COPY --from=build /app/pkg/reports/templates ./pkg/reports/templates
 
 EXPOSE 8080
