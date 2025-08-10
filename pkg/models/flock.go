@@ -4,6 +4,7 @@ import (
 	"birdseye-backend/pkg/broadcast"
 	"encoding/json"
 	"gorm.io/gorm"
+	"time"
 )
 
 // Flock represents a flock of birds in the farm
@@ -30,7 +31,10 @@ type Flock struct {
 	// Relationships
 	VaccinationSchedule []Vaccination   `json:"vaccination_schedule" gorm:"foreignKey:FlockID"`
 	EggProductions []EggProduction `json:"egg_productions" gorm:"foreignKey:FlockID"`
-	Sales               []Sale          `json:"sales" gorm:"foreignKey:FlockID"`   
+	Sales               []Sale          `json:"sales" gorm:"foreignKey:FlockID"`  
+	
+	CreatedAt           time.Time       `json:"created_at"`  // Add this
+    UpdatedAt           time.Time       `json:"updated_at"`
 
 
 

@@ -115,6 +115,11 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		return
 	}
 
+	// New: handle mode_of_administration (optional)
+	if mode, ok := rawData["mode_of_administration"].(string); ok {
+		vaccination.ModeOfAdministration = mode
+	}
+
 	dateStr, ok := rawData["date"].(string)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'date'"})
@@ -157,6 +162,8 @@ func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// No change needed here for mode_of_administration as it will be updated if included in updatedData map
 
 	query := db.DB.Model(&vaccination)
 	if _, exists := updatedData["date"]; !exists {

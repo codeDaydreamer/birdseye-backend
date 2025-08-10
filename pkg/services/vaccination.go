@@ -70,6 +70,7 @@ func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, upda
 		"vaccine_name": true,
 		"status":       true,
 		"date":         true,
+		"mode_of_administration": true,
 	}
 
 	validUpdates := make(map[string]interface{})
