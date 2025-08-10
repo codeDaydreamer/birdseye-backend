@@ -204,7 +204,20 @@ func generateExpenseChart(values []chart.Value) (string, error) {
     }
 
     baseDir, _ := os.Getwd()
-    chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/expense_chart.png")
+    outputDir := filepath.Join(baseDir, "pkg/reports/generated")
+
+    // Ensure the output directory exists before creating the file
+    if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+        return "", fmt.Errorf("failed to create output directory: %w", err)
+    }
+
+    chartImagePath := filepath.Join(outputDir, "expense_chart.png")
+
+    file, err := os.Create(chartImagePath)
+    if err != nil {
+        return "", fmt.Errorf("failed to create chart image file: %w", err)
+    }
+    defer file.Close()
 
     graph := chart.BarChart{
         Title:    "Expenses by Category",
@@ -231,14 +244,8 @@ func generateExpenseChart(values []chart.Value) (string, error) {
         },
     }
 
-    file, err := os.Create(chartImagePath)
-    if err != nil {
-        return "", err
-    }
-    defer file.Close()
-
     if err := graph.Render(chart.PNG, file); err != nil {
-        return "", err
+        return "", fmt.Errorf("failed to render chart: %w", err)
     }
 
     log.Println("Expense chart saved at:", chartImagePath)

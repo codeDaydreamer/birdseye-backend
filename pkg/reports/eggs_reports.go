@@ -209,17 +209,14 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 func generateEggProductionChart(values []chart.Value) (string, error) {
     log.Println("Rendering egg production chart...")
 
-    // Always ensure at least one value exists
     if len(values) == 0 {
         values = []chart.Value{{Label: "No Data", Value: 0}}
     }
 
-    // Ensure labels are informative
     for i := range values {
         values[i].Label = fmt.Sprintf("%s\n(%d eggs)", values[i].Label, int(values[i].Value))
     }
 
-    // Find max value, default to 1 if all zeros (so chart still renders)
     var maxValue float64
     for _, v := range values {
         if v.Value > maxValue {
@@ -231,10 +228,23 @@ func generateEggProductionChart(values []chart.Value) (string, error) {
     }
 
     baseDir, _ := os.Getwd()
-    chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/egg_production_chart.png")
+    outputDir := filepath.Join(baseDir, "pkg/reports/generated")
+
+    // Ensure directory exists before creating file
+    if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+        return "", fmt.Errorf("failed to create output directory: %w", err)
+    }
+
+    chartImagePath := filepath.Join(outputDir, "egg_production_chart.png")
+
+    file, err := os.Create(chartImagePath)
+    if err != nil {
+        return "", fmt.Errorf("failed to create chart image file: %w", err)
+    }
+    defer file.Close()
 
     graph := chart.BarChart{
-        Title:    "Egg Production by Flock",
+        Title: "Egg Production by Flock",
         TitleStyle: chart.Style{
             FontSize:  10,
             FontColor: chart.ColorBlack,
@@ -258,14 +268,8 @@ func generateEggProductionChart(values []chart.Value) (string, error) {
         },
     }
 
-    file, err := os.Create(chartImagePath)
-    if err != nil {
-        return "", err
-    }
-    defer file.Close()
-
     if err := graph.Render(chart.PNG, file); err != nil {
-        return "", err
+        return "", fmt.Errorf("failed to render chart: %w", err)
     }
 
     log.Println("Egg production chart saved at:", chartImagePath)

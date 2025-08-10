@@ -157,10 +157,18 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 
 func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate time.Time) (string, error) {
 	log.Println("Rendering sales trend chart...")
-	baseDir, _ := os.Getwd()
-	chartImagePath := filepath.Join(baseDir, "pkg/reports/generated/sales_trend_chart.png")
 
-	// Ensure at least one default point if no sales exist
+	baseDir, _ := os.Getwd()
+	outputDir := filepath.Join(baseDir, "pkg/reports/generated")
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	chartImagePath := filepath.Join(outputDir, "sales_trend_chart.png")
+
+	// Prepare time series data
 	var xValues []time.Time
 	var yValues []float64
 	currentDate := startDate
@@ -169,10 +177,10 @@ func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate 
 		dateStr := currentDate.Format("2006-01-02")
 		xValues = append(xValues, currentDate)
 		yValues = append(yValues, salesByDate[dateStr])
-		currentDate = currentDate.AddDate(0, 0, 1) // Move to next day
+		currentDate = currentDate.AddDate(0, 0, 1) // Next day
 	}
 
-	// Prevent empty chart rendering
+	// Prevent empty chart data
 	if len(xValues) == 0 {
 		xValues = append(xValues, startDate)
 		yValues = append(yValues, 0)
@@ -184,8 +192,8 @@ func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate 
 			FontSize:  14,
 			FontColor: chart.ColorBlack,
 		},
-		Width:     800,
-		Height:    500,
+		Width:  800,
+		Height: 500,
 		Background: chart.Style{
 			Padding: chart.Box{
 				Top:  40,
@@ -204,7 +212,7 @@ func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate 
 			},
 		},
 		XAxis: chart.XAxis{
-			Name:      "Date",
+			Name:         "Date",
 			TickPosition: chart.TickPositionBetweenTicks,
 		},
 		YAxis: chart.YAxis{
@@ -212,14 +220,13 @@ func generateSalesTrendChart(salesByDate map[string]float64, startDate, endDate 
 		},
 	}
 
-	// Safely create file
 	file, err := os.Create(chartImagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create chart file: %w", err)
 	}
 	defer func() {
 		if cerr := file.Close(); cerr != nil {
-			log.Println("Failed to close file:", cerr)
+			log.Println("Failed to close chart file:", cerr)
 		}
 	}()
 
