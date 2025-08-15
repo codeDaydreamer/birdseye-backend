@@ -5,29 +5,31 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
+
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
-	"crypto/rand"
-	"encoding/base64"
+
+	"birdseye-backend/pkg/services/email"
 
 	"github.com/golang-jwt/jwt/v4"
-	"birdseye-backend/pkg/services/email"
-	
+
 	"strings"
 
-	"github.com/go-sql-driver/mysql" 
-	
+	"github.com/go-sql-driver/mysql"
 )
+
 // Google OAuth configuration
 var googleOAuthConfig *oauth2.Config
 
@@ -167,13 +169,24 @@ type GoogleUser struct {
 	Picture string `json:"picture"`
 }
 func generateOTP(length int) (string, error) {
-	bytes := make([]byte, length)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
+	if length <= 0 {
+		return "", errors.New("OTP length must be greater than zero")
 	}
-	return base64.StdEncoding.EncodeToString(bytes)[:length], nil
+
+	const digits = "0123456789"
+	bytes := make([]byte, length)
+
+	for i := range bytes {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random digit: %w", err)
+		}
+		bytes[i] = digits[num.Int64()]
+	}
+
+	return string(bytes), nil
 }
+
 func GenerateAndSendOTP(user *models.User) error {
 	otp, err := generateOTP(6)
 	if err != nil {
@@ -457,4 +470,78 @@ func UpdateUserProfilePicture(userID uint, profilePicturePath string) (*models.U
 	}
 
 	return &user, nil
+}
+
+// RequestPasswordReset generates and sends an OTP to the user's email for password reset
+func RequestPasswordReset(emailAddr string) error {
+	var user models.User
+	if err := db.DB.Where("email = ?", emailAddr).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("no account found with this email")
+		}
+		return fmt.Errorf("database error: %w", err)
+	}
+
+	// Generate OTP
+	otp, err := generateOTP(6) // Example: "492815"
+	if err != nil {
+		return fmt.Errorf("failed to generate OTP: %w", err)
+	}
+
+	// Hash OTP for storage
+	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otp), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash OTP: %w", err)
+	}
+
+	// Save OTP & expiry in DB
+	expiry := time.Now().Add(15 * time.Minute)
+	user.OTPHashed = string(hashedOTP)
+	user.OTPExpiresAt = &expiry
+	if err := db.DB.Save(&user).Error; err != nil {
+		return fmt.Errorf("failed to save OTP: %w", err)
+	}
+
+	// Send the OTP email (custom HTML email template)
+	if err := email.SendPasswordResetOTP(user.Email, user.Username, otp); err != nil {
+		return fmt.Errorf("failed to send password reset OTP email: %w", err)
+	}
+
+	return nil
+}
+// ResetPasswordWithOTP resets a user's password after verifying the provided OTP
+func ResetPasswordWithOTP(emailAddr, otp, newPassword string) error {
+	var user models.User
+	if err := db.DB.Where("email = ?", emailAddr).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("no account found with this email")
+		}
+		return fmt.Errorf("database error: %w", err)
+	}
+
+	// Check if OTP is expired
+	if user.OTPExpiresAt == nil || time.Now().After(*user.OTPExpiresAt) {
+		return errors.New("OTP has expired")
+	}
+
+	// Verify OTP
+	if err := bcrypt.CompareHashAndPassword([]byte(user.OTPHashed), []byte(otp)); err != nil {
+		return errors.New("invalid OTP")
+	}
+
+	// Update password
+	user.Password = newPassword
+	if err := user.HashPassword(); err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// Clear OTP fields after successful reset
+	user.OTPHashed = ""
+	user.OTPExpiresAt = nil
+
+	if err := db.DB.Save(&user).Error; err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
 }

@@ -1,20 +1,21 @@
 package api
 
 import (
-	
-	"log"
-	"net/http"
-	"os"
-	"fmt"
-	"time"
-	"github.com/gin-gonic/gin"
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/services"
-	"golang.org/x/oauth2"
-	"birdseye-backend/pkg/db"
-	"golang.org/x/crypto/bcrypt"
 	"birdseye-backend/pkg/services/email"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 )
 
 // SetupRoutes sets up all the API routes
@@ -30,7 +31,9 @@ func SetupRoutes(router *gin.Engine) {
 		auth.POST("/verify-otp", handleVerifyOTP)
 		auth.POST("/resend-otp", handleResendOTP)
 
-
+		// Forgot/Reset password should also use the auth group
+		auth.POST("/forgot-password", handleForgotPassword)
+		auth.POST("/reset-password", handleResetPassword)
 
 		// Protected user routes
 		protected := auth.Group("/")
@@ -49,16 +52,14 @@ func SetupRoutes(router *gin.Engine) {
 	admin := router.Group("/admin")
 	admin.Use(middlewares.AuthMiddleware(), middlewares.AdminAuthMiddleware())
 	admin.GET("/me", handleGetAdminProfile)
-
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/user/:id", handleAdminGetUserByID)
 	admin.PUT("/user/:id", handleAdminUpdateUser)
 	admin.DELETE("/user/:id", handleAdminDeleteUser)
 	admin.POST("/create-user", handleAdminCreateUser)
 	admin.PUT("/user/:id/reset-password", handleAdminResetUserPassword)
-
-
 }
+
 
 
 // ---------- HANDLER FUNCTIONS ----------
@@ -138,6 +139,46 @@ func handleResendOTP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "OTP has been resent to your email"})
+}
+
+func handleForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Email) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid email is required"})
+		return
+	}
+
+	if err := services.RequestPasswordReset(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "OTP sent to your email"})
+}
+func handleResetPassword(c *gin.Context) {
+	var req struct {
+		Email       string `json:"email"`
+		OTP         string `json:"otp"`
+		NewPassword string `json:"new_password"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil ||
+		strings.TrimSpace(req.Email) == "" ||
+		strings.TrimSpace(req.OTP) == "" ||
+		len(req.NewPassword) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	if err := services.ResetPasswordWithOTP(req.Email, req.OTP, req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful"})
 }
 
 
@@ -296,19 +337,23 @@ func handleGoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Log the token here to verify if it's being sent correctly
-	log.Printf("Generated Google Auth Token: %s", token)
-
-	log.Printf("Authenticated User: %+v\n", user) // Log user details
-
-	// Get frontend URL from environment variable or use default
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "https://app.birdseye-poultry.com" // Change this if needed
+	// ---- Update last login timestamp ----
+	now := time.Now()
+	if err := db.DB.Model(&user).Update("last_login", now).Error; err != nil {
+		log.Printf("Failed to update last login time: %v", err)
 	}
 
-	// Redirect user to frontend with token
-	redirectURL := fmt.Sprintf("https://app.birdseye-poultry.com/?token=%s",  token)
+	// Log the token and user details
+	log.Printf("Generated Google Auth Token: %s", token)
+	log.Printf("Authenticated User: %+v\n", user)
+
+	// Get frontend URL from environment variable or fallback
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "https://app.birdseye-poultry.com"
+	}
+
+	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, token)
 	log.Println("Redirecting to frontend with token:", redirectURL)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
