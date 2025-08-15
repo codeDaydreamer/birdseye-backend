@@ -2,9 +2,11 @@ package models
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"birdseye-backend/pkg/db" // Ensure to import the db package
+
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -111,4 +113,33 @@ func (u *User) ComputeTrialEndsAt() time.Time {
 func (u *User) ComputeIsTrialActive() bool {
 	return time.Now().Before(u.ComputeTrialEndsAt())
 }
+// UpdateTrialPeriods sets TrialEndsAt and IsTrialActive for users who don't have it set
+func UpdateTrialPeriods() error {
+	var users []User
 
+	// Fetch all users
+	if err := db.DB.Find(&users).Error; err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		// Only update users whose TrialEndsAt is zero
+		if user.TrialEndsAt.IsZero() {
+			trialEnds := user.CreatedAt.AddDate(0, 0, 30)
+			isActive := time.Now().Before(trialEnds)
+
+			// Update fields
+			if err := db.DB.Model(&User{}).Where("id = ?", user.ID).
+				Updates(map[string]interface{}{
+					"trial_ends_at":   trialEnds,
+					"is_trial_active": isActive,
+				}).Error; err != nil {
+				log.Printf("Failed to update trial for user %d: %v", user.ID, err)
+			} else {
+				log.Printf("Trial updated for user %d: ends at %v", user.ID, trialEnds)
+			}
+		}
+	}
+
+	return nil
+}

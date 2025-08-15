@@ -226,6 +226,12 @@ func main() {
 		log.Fatalf("Error during auto migration: %v", err)
 	}
 	log.Println("Database migrated successfully")
+	
+		// --- New: Update trial periods for existing users ---
+	if err := models.UpdateTrialPeriods(); err != nil {
+		log.Fatalf("Failed to update trial periods: %v", err)
+	}
+	log.Println("Trial periods updated for all existing users")
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()
