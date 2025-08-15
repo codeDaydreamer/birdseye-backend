@@ -20,11 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libcairo2-dev \
     libpango1.0-dev \
-    libgdk-pixbuf2.0-dev \
+    libgdk-pixbuf-xlib-2.0-dev \
     libffi-dev \
     tzdata \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Install WeasyPrint via pip
 RUN pip install --no-cache-dir weasyprint
