@@ -72,17 +72,13 @@ func GoogleAuthURL() string {
 }
 
 
-// GoogleAuthCallback handles Google's OAuth callback and logs in/registers the user
 func GoogleAuthCallback(code string) (string, *models.User, error) {
 	ctx := context.Background()
 
-	// Debugging: Ensure the OAuth config is set
 	if googleOAuthConfig == nil {
 		log.Println("Google OAuth Config is nil!")
 		return "", nil, errors.New("google oauth configuration is not initialized")
 	}
-
-	
 
 	// Exchange the authorization code for an access token
 	token, err := googleOAuthConfig.Exchange(ctx, code)
@@ -110,22 +106,30 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 				Email:          userInfo.Email,
 				ProfilePicture: userInfo.Picture,
 				Password:       "", // No password needed for Google sign-in
+				IsTrialActive:  true,
+				TrialEndsAt:    time.Now().AddDate(0, 0, 30), // 30 days from now
 			}
 
 			if err := db.DB.Create(&user).Error; err != nil {
 				log.Println("User registration failed:", err)
 				return "", nil, fmt.Errorf("failed to create user: %w", err)
 			}
+
+			// Send welcome email asynchronously
+			go func() {
+				if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
+					log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+				}
+			}()
 		} else {
 			log.Println("Database error:", err)
 			return "", nil, fmt.Errorf("database error: %w", err)
 		}
-		// Send welcome email asynchronously
-	go func() {
-		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
-			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+	} else {
+		// Existing user: optionally refresh trial if needed
+		if user.IsTrialActive && user.TrialEndsAt.IsZero() {
+			user.TrialEndsAt = user.CreatedAt.AddDate(0, 0, 30)
 		}
-	}()
 	}
 
 	// Generate JWT token
@@ -221,17 +225,22 @@ func GenerateAndSendOTP(user *models.User) error {
 
 
 func RegisterUser(user *models.User) (*models.User, error) {
+	// Hash the user's password
 	if err := user.HashPassword(); err != nil {
 		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
 
+	// Set trial period: 30 days from now
+	user.TrialEndsAt = time.Now().AddDate(0, 0, 30)
+	user.IsTrialActive = true
+
+	// Insert user into database
 	if result := db.DB.Create(user); result.Error != nil {
 		err := result.Error
 
 		// Check if error is a MySQL duplicate entry error
 		var mysqlErr *mysql.MySQLError
 		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
-			// Inspect error message for which unique key failed
 			errMsg := mysqlErr.Message
 			if strings.Contains(errMsg, "uni_users_username") {
 				return nil, errors.New("username is already taken")
@@ -245,6 +254,7 @@ func RegisterUser(user *models.User) (*models.User, error) {
 		return nil, fmt.Errorf("error inserting user into database: %w", err)
 	}
 
+	// Send OTP asynchronously
 	if err := GenerateAndSendOTP(user); err != nil {
 		return nil, err
 	}

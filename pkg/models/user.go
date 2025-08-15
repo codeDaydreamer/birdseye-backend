@@ -46,9 +46,9 @@ type User struct {
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
 
-	PaymentStatus  string       `gorm:"default:'unpaid'" json:"payment_status"` // New field
+	PaymentStatus  string       `gorm:"default:'unpaid'" json:"payment_status"`
 
-	TrialEndsAt    time.Time    `gorm:"-" json:"trial_ends_at"`
+	TrialEndsAt    time.Time    `json:"trial_ends_at"` // now persistent
 	IsTrialActive  bool         `json:"is_trial_active"`
 	OTP            string       `gorm:"-" json:"-"`
 	OTPHashed      string       `json:"-"`
