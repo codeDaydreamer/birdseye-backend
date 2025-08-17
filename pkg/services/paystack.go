@@ -122,7 +122,7 @@ func (s *PaystackService) SaveInitiatedPayment(userID uint, reference string, am
 		UserID:    userID,
 		Amount:    float64(amount) / 100,
 		Gateway:   "paystack",
-		TxRef:     reference,
+		TxRef:     &reference,
 		Reference: reference,
 		Status:    "initiated",
 	
@@ -221,7 +221,7 @@ func (s *PaystackService) SaveSuccessfulPayment(userID uint, txData map[string]i
 				UserID:    userID,
 				Amount:    amount,
 				Gateway:   "paystack",
-				TxRef:     ref,
+				TxRef:     &ref,
 				Reference: ref,
 				Status:    "success",
 				PaymentID: &idStr,

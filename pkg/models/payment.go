@@ -56,7 +56,7 @@ type Payment struct {
 	Status             string      `gorm:"default:'initiated'" json:"status"`
 
 	Reference          string      `gorm:"type:varchar(255);uniqueIndex" json:"reference"`
-	TxRef              string      `gorm:"type:varchar(255);uniqueIndex" json:"tx_ref"`
+	TxRef *string `gorm:"type:varchar(255);uniqueIndex" json:"tx_ref"`
 	PaymentID          *string     `gorm:"type:varchar(191);uniqueIndex" json:"payment_id"`
 
 	// Daraja (M-Pesa) fields
