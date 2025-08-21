@@ -85,7 +85,7 @@ func SendWelcomeEmail(toEmail, name string) error {
 				</div>
 				<div class="content">
 					<p>Hi %s,</p>
-					<p>We're so glad you're here! 🎉 You've officially started your <strong>30-day free trial</strong> of <strong>Birdseye Poultry Manager</strong>.</p>
+					<p>We're so glad you're here! 🎉 You've officially started your <strong>14-day free trial</strong> of <strong>Birdseye Poultry Manager</strong>.</p>
 					<p>With Birdseye, you can:</p>
 					<ul>
 						<li>📊 Track egg production and sales</li>

@@ -185,7 +185,7 @@ func startVaccinationReminderTask(vaccinationService *services.VaccinationServic
 
 func main() {
 	
-	 //gin.SetMode(gin.ReleaseMode) 
+	gin.SetMode(gin.ReleaseMode) 
 	// Load environment variables
 	loadEnv()
 
@@ -232,6 +232,10 @@ func main() {
 		log.Fatalf("Failed to update trial periods: %v", err)
 	}
 	log.Println("Trial periods updated for all existing users")
+	if err := models.MigrateAndSeedBetaFields(); err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+	log.Println("Beta Fields Migration completed successfully")
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()

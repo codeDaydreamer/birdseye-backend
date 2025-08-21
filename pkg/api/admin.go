@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/services"
+	"birdseye-backend/pkg/db"
 )
 
 func handleAdminCreateUser(c *gin.Context) {
@@ -41,4 +42,28 @@ func handleAdminResetUserPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User password reset successfully"})
+}
+func handleAdminToggleBetaPricing(c *gin.Context) {
+	var req struct {
+		Active bool `json:"active"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	cfg, err := models.GetAdminConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	cfg.BetaPricingActive = req.Active
+	if err := db.DB.Save(cfg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Beta pricing toggled successfully", "active": cfg.BetaPricingActive})
 }

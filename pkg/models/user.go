@@ -50,8 +50,13 @@ type User struct {
 
 	PaymentStatus  string       `gorm:"default:'unpaid'" json:"payment_status"`
 
-	TrialEndsAt    time.Time    `json:"trial_ends_at"` // now persistent
+	TrialEndsAt    time.Time    `json:"trial_ends_at"` // persistent
 	IsTrialActive  bool         `json:"is_trial_active"`
+
+	// New field for beta testers discount
+	IsBetaTester   bool         `gorm:"default:true" json:"is_beta_tester"`
+	DiscountedPrice int         `gorm:"default:1500" json:"discounted_price"` // 2500 by default, 1500 for beta testers
+
 	OTP            string       `gorm:"-" json:"-"`
 	OTPHashed      string       `json:"-"`
 	OTPExpiresAt   *time.Time   `json:"-"`
@@ -60,6 +65,16 @@ type User struct {
 
 	Subscription Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
 	BillingInfo  BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
+}
+
+
+// SetBetaPricing sets the discounted price for beta testers
+func (u *User) SetBetaPricing() {
+	if u.IsBetaTester {
+		u.DiscountedPrice = 1500
+	} else {
+		u.DiscountedPrice = 2500
+	}
 }
 
 
@@ -105,11 +120,12 @@ func GetUserByID(userID uint) (*User, error) {
 	return &user, nil
 }
 
-// Rename methods to avoid conflict:
+// ComputeTrialEndsAt returns the trial end date (14 days for beta launch)
 func (u *User) ComputeTrialEndsAt() time.Time {
-	return u.CreatedAt.AddDate(0, 0, 30)
+	return u.CreatedAt.AddDate(0, 0, 14) // 14 days trial
 }
 
+// ComputeIsTrialActive checks if trial is still active
 func (u *User) ComputeIsTrialActive() bool {
 	return time.Now().Before(u.ComputeTrialEndsAt())
 }
@@ -117,18 +133,15 @@ func (u *User) ComputeIsTrialActive() bool {
 func UpdateTrialPeriods() error {
 	var users []User
 
-	// Fetch all users
 	if err := db.DB.Find(&users).Error; err != nil {
 		return err
 	}
 
 	for _, user := range users {
-		// Only update users whose TrialEndsAt is zero
 		if user.TrialEndsAt.IsZero() {
-			trialEnds := user.CreatedAt.AddDate(0, 0, 30)
-			isActive := time.Now().Before(trialEnds)
+			trialEnds := user.ComputeTrialEndsAt()
+			isActive := user.ComputeIsTrialActive()
 
-			// Update fields
 			if err := db.DB.Model(&User{}).Where("id = ?", user.ID).
 				Updates(map[string]interface{}{
 					"trial_ends_at":   trialEnds,
@@ -138,6 +151,13 @@ func UpdateTrialPeriods() error {
 			} else {
 				log.Printf("Trial updated for user %d: ends at %v", user.ID, trialEnds)
 			}
+		}
+
+		// Ensure beta pricing is applied
+		user.SetBetaPricing()
+		if err := db.DB.Model(&User{}).Where("id = ?", user.ID).
+			Update("discounted_price", user.DiscountedPrice).Error; err != nil {
+			log.Printf("Failed to update pricing for user %d: %v", user.ID, err)
 		}
 	}
 

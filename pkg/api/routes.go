@@ -31,7 +31,7 @@ func SetupRoutes(router *gin.Engine) {
 		auth.POST("/verify-otp", handleVerifyOTP)
 		auth.POST("/resend-otp", handleResendOTP)
 
-		// Forgot/Reset password should also use the auth group
+		// Forgot/Reset password
 		auth.POST("/forgot-password", handleForgotPassword)
 		auth.POST("/reset-password", handleResetPassword)
 
@@ -43,7 +43,7 @@ func SetupRoutes(router *gin.Engine) {
 		protected.POST("/update-profile-picture", handleUpdateProfilePicture)
 		protected.PUT("/change-password", handleChangePassword)
 
-		// Admin Public routes (register & login)
+		// Admin Public routes
 		auth.POST("/admin/register", handleAdminRegistration)
 		auth.POST("/admin/login", handleAdminLogin)
 	}
@@ -58,7 +58,11 @@ func SetupRoutes(router *gin.Engine) {
 	admin.DELETE("/user/:id", handleAdminDeleteUser)
 	admin.POST("/create-user", handleAdminCreateUser)
 	admin.PUT("/user/:id/reset-password", handleAdminResetUserPassword)
+
+	// NEW: Admin toggle beta pricing
+	admin.PUT("/toggle-beta-pricing", handleAdminToggleBetaPricing)
 }
+
 
 
 
