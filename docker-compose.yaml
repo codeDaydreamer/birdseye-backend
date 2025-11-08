@@ -44,6 +44,8 @@ services:
       - "8080"          # internal only for Nginx
     depends_on:
       - mysql
+    env_file:
+      - ./birdseye/cmd/birdseye/.env  
     environment:
       DB_HOST: mysql
       DB_PORT: 3306
