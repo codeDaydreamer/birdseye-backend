@@ -12,8 +12,8 @@ services:
       MYSQL_PASSWORD: newpassword
     volumes:
       - mysql_data:/var/lib/mysql
-    ports:
-      - "3307:3306"
+    expose:
+      - "3306"  # Internal only, no public port
 
   postgres:
     image: postgres:15
@@ -25,15 +25,15 @@ services:
       POSTGRES_PASSWORD: palaskijr
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
+    expose:
+      - "5432"  # Internal only
 
   redis:
     image: redis:7
     container_name: dynapay-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"  # Internal only
 
   backend:
     build:
@@ -43,8 +43,8 @@ services:
     restart: unless-stopped
     env_file:
       - ./birdseye/cmd/birdseye/.env
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"  # Internal only (no 8080:8080)
     depends_on:
       - mysql
     environment:
@@ -59,8 +59,8 @@ services:
     restart: unless-stopped
     env_file:
       - ./dynapay/.env
-    ports:
-      - "8084:8081"
+    expose:
+      - "8081"  # Internal only (no 8084:8081)
     depends_on:
       - postgres
       - redis
@@ -74,8 +74,8 @@ services:
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
-    ports:
-      - "8081:80"
+    expose:
+      - "80"  # Internal only, accessible via Nginx or manually
     depends_on:
       - mysql
 
@@ -83,8 +83,8 @@ services:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     restart: unless-stopped
-    ports:
-      - "8082:8080"
+    expose:
+      - "8080"  # Internal only
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -97,12 +97,15 @@ services:
     restart: unless-stopped
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
     ports:
-      - "8083:80"
+      - "80:80"
+      - "443:443"
     depends_on:
       - backend
-      - phpmyadmin
       - dynapay
+      - phpmyadmin
 
 volumes:
   mysql_data:
