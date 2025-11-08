@@ -37,14 +37,12 @@ services:
 
   backend:
     build:
-      context: ./birdseye
+      context: .        # Dockerfile is in birdseye-backend root
       dockerfile: Dockerfile
     container_name: birdseye-server
     restart: unless-stopped
-    env_file:
-      - ./birdseye/cmd/birdseye/.env
     expose:
-      - "8080"  # Internal only (no 8080:8080)
+      - "8080"          # internal only for Nginx
     depends_on:
       - mysql
     environment:
