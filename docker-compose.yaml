@@ -8,11 +8,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: newpassword
       MYSQL_DATABASE: birdseye_db
-     
     volumes:
       - mysql_data:/var/lib/mysql
     expose:
-      - "3306"  # Internal only, no public port
+      - "3306"
+    networks:
+      - birdseye-net
 
   postgres:
     image: postgres:15
@@ -25,30 +26,36 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     expose:
-      - "5432"  # Internal only
+      - "5432"
+    networks:
+      - birdseye-net
 
   redis:
     image: redis:7
     container_name: dynapay-redis
     restart: unless-stopped
     expose:
-      - "6379"  # Internal only
+      - "6379"
+    networks:
+      - birdseye-net
 
   backend:
     build:
-      context: .        # Dockerfile is in birdseye-backend root
+      context: .
       dockerfile: Dockerfile
     container_name: birdseye-server
     restart: unless-stopped
     expose:
-      - "8080"          # internal only for Nginx
+      - "8080"
     depends_on:
       - mysql
     env_file:
-      - ./birdseye/cmd/birdseye/.env  
+      - ./birdseye/cmd/birdseye/.env
     environment:
       DB_HOST: mysql
       DB_PORT: 3306
+    networks:
+      - birdseye-net
 
   dynapay:
     build:
@@ -59,13 +66,15 @@ services:
     env_file:
       - ./dynapay/.env
     expose:
-      - "8081"  # Internal only (no 8084:8081)
+      - "8081"
     depends_on:
       - postgres
       - redis
     environment:
-      DB_URL: postgres://palaski:palaskijr@postgres:5432/dynapay?sslmode=disable
+      DB_URL: postgres://palaski:palaskijr@dynapay-postgres:5432/dynapay?sslmode=disable
       REDIS_URL: redis:6379
+    networks:
+      - birdseye-net
 
   phpmyadmin:
     image: phpmyadmin:latest
@@ -74,21 +83,25 @@ services:
       PMA_HOST: mysql
       PMA_PORT: 3306
     expose:
-      - "80"  # Internal only, accessible via Nginx or manually
+      - "80"
     depends_on:
       - mysql
+    networks:
+      - birdseye-net
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     restart: unless-stopped
     expose:
-      - "8080"  # Internal only
+      - "8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - birdseye-net
 
   nginx:
     image: nginx:alpine
@@ -105,7 +118,13 @@ services:
       - backend
       - dynapay
       - phpmyadmin
+    networks:
+      - birdseye-net
 
 volumes:
   mysql_data:
   pgdata:
+
+networks:
+  birdseye-net:
+    driver: bridge
