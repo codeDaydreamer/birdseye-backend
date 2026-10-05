@@ -7,7 +7,8 @@ import (
 // Budget represents a budget entry in the database with monthly support
 type Budget struct {
 	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID    int      `json:"user_id" gorm:"index;not null"` // Foreign key reference to User
+	UserID    uint     `json:"user_id" gorm:"index;not null"` // Foreign key reference to User
+	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
 	FlockID   uint      `json:"flock_id" gorm:"index;not null"` // Foreign key reference to Flock
 	Amount    float64   `json:"amount" gorm:"not null"` // The budget amount
 	Month     int       `json:"month" gorm:"not null"`   // The month for the budget (1=January, 12=December)

@@ -11,6 +11,7 @@ import (
 type Flock struct {
 	ID                  uint            `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID              uint            `json:"user_id" gorm:"index;not null"`
+	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
 	Name                string          `json:"name" gorm:"not null"`
 	Status              string          `json:"status" gorm:"not null"`
 	InitialBirdCount    int             `json:"initial_bird_count" gorm:"not null"`

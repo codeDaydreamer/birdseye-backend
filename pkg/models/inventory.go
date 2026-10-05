@@ -9,6 +9,7 @@ type InventoryItem struct {
     ReorderLevel int    `gorm:"not null" json:"reorder_level"`
     CostPerUnit float64 `gorm:"not null" json:"cost_per_unit"`
     UserID      uint    `gorm:"not null" json:"user_id"`
+    FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
     FlockID     uint    `gorm:"not null;index" json:"flock_id"` // Foreign key reference to Flock
 
     // Relationship

@@ -9,6 +9,7 @@ import (
 type EggProduction struct {
 	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID        uint      `json:"user_id" gorm:"index;not null"`
+	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
 	FlockID       uint      `json:"flock_id" gorm:"index;not null"`
 	FlockName     string    `json:"flock_name" gorm:"column:flock_name"`  // Not stored in DB, fetched via join
 	EggsCollected int       `json:"eggs_collected" gorm:"not null"`
@@ -23,6 +24,7 @@ type EggProduction struct {
 type EggAdjustment struct {
     ID              uint       `json:"id" gorm:"primaryKey;autoIncrement"`
     UserID          uint       `json:"user_id" gorm:"index;not null"`        // keep for auth association
+    FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
     FlockID         uint       `json:"flock_id" gorm:"index;not null"`       // maps from frontend flock_id
     EggProductionID *uint      `json:"egg_production_id" gorm:"index"`       // optional
     Reason          string     `json:"adjustment_type" gorm:"type:varchar(100);not null"` // maps from frontend adjustment_type

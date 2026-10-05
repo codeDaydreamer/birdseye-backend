@@ -15,9 +15,11 @@ import (
 type BillingInfo struct {
 	ID         int    `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID     int    `gorm:"uniqueIndex" json:"user_id"`
-	CardNumber string `json:"card_number"`
-	ExpiryDate string `json:"expiry_date"`
-	CVV        string `json:"cvv"`
+	FarmID     *uint  `gorm:"index" json:"farm_id"` // nullable until cutover; becomes the unique owner key
+	// Opaque provider data only -- never store PAN/CVV (Paystack/Dynapay hold the instrument)
+	CardLast4     string `gorm:"type:varchar(4)" json:"card_last4"`
+	CardBrand     string `gorm:"type:varchar(30)" json:"card_brand"`
+	ProviderToken string `json:"-"`
 	Address    string `json:"address"`
 	City       string `json:"city"`
 	Country    string `json:"country"`
@@ -28,6 +30,7 @@ type BillingInfo struct {
 type Subscription struct {
 	ID            int        `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID        int        `gorm:"uniqueIndex" json:"user_id"`
+	FarmID        *uint      `gorm:"index" json:"farm_id"` // nullable until cutover; becomes the unique owner key
 	Plan          string     `json:"plan"`
 	Status        string     `json:"status"`
 	ExpiryDate    *time.Time `json:"expiry_date"`

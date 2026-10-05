@@ -51,6 +51,7 @@ func (ct *CustomTime) Scan(value interface{}) error {
 type Payment struct {
 	ID                 string      `gorm:"primaryKey;type:varchar(36)" json:"id"`
 	UserID             uint        `gorm:"index;not null" json:"user_id"`
+	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
 	Amount             float64     `gorm:"not null" json:"amount"`
 	PhoneNumber        string      `gorm:"type:varchar(20);not null" json:"phone_number"`
 	Status             string      `gorm:"default:'initiated'" json:"status"`

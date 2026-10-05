@@ -10,6 +10,8 @@ import (
 type Sale struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserID      uint      `json:"user_id" gorm:"index;not null"`
+	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	CreatedByUserID uint `json:"created_by_user_id" gorm:"index"` // staff member who logged this record
 	FlockID     uint      `json:"flock_id" gorm:"index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` 
 	RefNo       string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
 	Product     string    `json:"product" gorm:"type:varchar(100);not null"`

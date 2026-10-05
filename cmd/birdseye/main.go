@@ -204,6 +204,10 @@ func main() {
 
 	// Auto-migrate all models
 	err := db.DB.AutoMigrate(
+		// Farm first: it declares the farm_id FK on subscriptions/billing_infos
+		&models.Farm{},
+		&models.FarmMember{},
+		&models.FarmInvite{},
 		&models.Flock{},
 		&models.User{},
 		&models.EggProduction{},
@@ -236,6 +240,10 @@ func main() {
 		log.Fatalf("Migration failed: %v", err)
 	}
 	log.Println("Beta Fields Migration completed successfully")
+	if err := models.BackfillFarms(); err != nil {
+		log.Fatalf("Farm backfill failed: %v", err)
+	}
+	log.Println("Farm backfill completed successfully")
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()

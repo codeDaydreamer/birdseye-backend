@@ -113,7 +113,7 @@ func (h *BudgetHandler) AddBudget(c *gin.Context) {
 		return
 	}
 
-	budget.UserID = int(user.ID)
+	budget.UserID = user.ID
 	if err := db.DB.Create(&budget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create budget"})
 		return
