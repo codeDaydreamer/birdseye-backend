@@ -3,12 +3,13 @@ package api
 import (
 	"birdseye-backend/pkg/broadcast"
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"log"
 	"net/http"
 	"strconv"
-	"github.com/gin-gonic/gin"
 )
 
 // BudgetHandler handles budget-related requests
@@ -130,7 +131,7 @@ func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
 	}
 
 	var budget models.Budget
-	if err := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year).First(&budget).Error; err != nil {
+	if err := budgetForMonth(c, farmID, month, year).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
@@ -171,7 +172,7 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 	}
 
 	var budget models.Budget
-	if err := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year).First(&budget).Error; err != nil {
+	if err := budgetForMonth(c, farmID, month, year).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
@@ -183,4 +184,14 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 	broadcast.SendBudgetUpdate(farmID, "budget_deleted", budget.ID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
+}
+
+// budgetForMonth finds the farm's budget for a month; a farm can budget each flock separately, so an
+// optional ?flock_id= picks which flock's budget (without it, the first one for that month)
+func budgetForMonth(c *gin.Context, farmID uint, month, year int) *gorm.DB {
+	q := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year)
+	if flockID, err := strconv.Atoi(c.Query("flock_id")); err == nil {
+		q = q.Where("flock_id = ?", flockID)
+	}
+	return q
 }
