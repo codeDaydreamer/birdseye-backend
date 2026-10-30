@@ -7,32 +7,41 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
-// SMTP2GoRequest defines the payload for sending email
-type SMTP2GoRequest struct {
-	Sender   string   `json:"sender"`
-	To       []string `json:"to"`
-	Subject  string   `json:"subject"`
-	HtmlBody string   `json:"html_body,omitempty"`
-	TextBody string   `json:"text_body,omitempty"`
+// defaultSender is used when EMAIL_FROM isn't set; its domain must be verified in Resend
+const defaultSender = "Birdseye Poultry <birdseye-poultry@816-dynamics.com>"
+
+// resendRequest is the payload for Resend's send-email API
+type resendRequest struct {
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	HTML    string   `json:"html,omitempty"`
+	Text    string   `json:"text,omitempty"`
 }
 
-// SendEmail sends an email using the SMTP2GO API
+// SendEmail sends an email using the Resend API (RESEND_API_KEY, optional EMAIL_FROM)
 func SendEmail(to, subject, htmlBody string) error {
-	apiKey := os.Getenv("SMTP2GO_API_KEY")
+	apiKey := os.Getenv("RESEND_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("SMTP2GO API key is missing")
+		return fmt.Errorf("RESEND_API_KEY is missing")
 	}
 
-	url := "https://api.smtp2go.com/v3/email/send"
+	sender := os.Getenv("EMAIL_FROM")
+	if sender == "" {
+		sender = defaultSender
+	}
 
-	emailReq := SMTP2GoRequest{
-		Sender:   "birdseye-poultry@816-dynamics.com", 
-		To:       []string{to},
-		Subject:  subject,
-		HtmlBody: htmlBody,
-		TextBody: "Thank you for using Birdseye Poultry.",
+	url := "https://api.resend.com/emails"
+
+	emailReq := resendRequest{
+		From:    sender,
+		To:      []string{to},
+		Subject: subject,
+		HTML:    htmlBody,
+		Text:    "Thank you for using Birdseye Poultry.",
 	}
 
 	data, err := json.Marshal(emailReq)
@@ -46,10 +55,10 @@ func SendEmail(to, subject, htmlBody string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Smtp2go-Api-Key", apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -61,7 +70,7 @@ func SendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("email failed: status %d - %s", resp.StatusCode, string(body))
 	}
 
