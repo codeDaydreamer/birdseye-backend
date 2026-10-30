@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -301,6 +302,8 @@ func main() {
 	// Start vaccination reminder background task
 	vaccinationService := services.NewVaccinationService(db.DB)
 	go startVaccinationReminderTask(vaccinationService)
+	// Settles M-Pesa payments whose Dynapay webhook never arrived
+	go services.RunDynapayReconciler(context.Background(), api.NotifyPaymentOutcome)
 
 	// Start the server
 	port := os.Getenv("PORT")

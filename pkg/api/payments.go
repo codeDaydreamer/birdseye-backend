@@ -6,17 +6,15 @@ import (
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/services"
 	"birdseye-backend/pkg/services/email"
-	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"io"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
-	"time"
 )
 
 // PaymentHandler handles payment-related requests
@@ -93,21 +91,6 @@ func (h *PaymentHandler) QuotePayment(c *gin.Context) {
 	c.JSON(http.StatusOK, quote)
 }
 
-// dynapayWebhookURL is where Dynapay posts the payment result. Dynapay doesn't sign webhooks, so the
-// URL carries a shared secret that HandleDynapayWebhook checks.
-func dynapayWebhookURL() (string, error) {
-	base := os.Getenv("DYNAPAY_WEBHOOK_URL")
-	secret := os.Getenv("DYNAPAY_WEBHOOK_SECRET")
-	if base == "" || secret == "" {
-		return "", fmt.Errorf("DYNAPAY_WEBHOOK_URL and DYNAPAY_WEBHOOK_SECRET must be set")
-	}
-	sep := "?"
-	if strings.Contains(base, "?") {
-		sep = "&"
-	}
-	return base + sep + "token=" + url.QueryEscape(secret), nil
-}
-
 // InitiatePayment pays for a plan: an M-Pesa STK push via Dynapay, or, when a promo code brings
 // the price to zero, activates the plan straight away
 func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
@@ -174,16 +157,11 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 		return
 	}
 
-	webhook, err := dynapayWebhookURL()
+	result, err := services.Dynapay.CreatePayment(req.Phone, quote.Amount, req.Reference,
+		fmt.Sprintf("Birdseye %s %s", quote.PlanName, quote.BillingPeriod),
+		map[string]interface{}{"farm_id": farmID, "user_id": userID, "plan_id": quote.PlanID})
 	if err != nil {
-		logrus.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server misconfiguration"})
-		return
-	}
-
-	result, err := services.Dynapay.SendSTKPush(req.Phone, quote.Amount, req.Reference, webhook)
-	if err != nil {
-		logrus.Errorf("Dynapay STK Push failed: %v", err)
+		logrus.Errorf("Dynapay payment request failed: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to initiate payment", "details": err.Error()})
 		return
 	}
@@ -191,129 +169,104 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 	// Record the payment now, so the webhook can only complete payments we started
 	payment.Status = "initiated"
 	payment.Gateway = "mpesa"
-	payment.PaymentID = &result.PaymentID
-	payment.MerchantRequestID = result.MerchantRequestID
-	payment.CheckoutRequestID = result.CheckoutRequestID
+	payment.PaymentID = &result.ID
+	payment.MerchantRequestID = result.ProviderMerchantID
+	payment.CheckoutRequestID = result.ProviderRequestID
 	if err := db.DB.Create(&payment).Error; err != nil {
 		logrus.Errorf("Failed to record initiated payment for farm %d: %v", farmID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record payment"})
 		return
 	}
 
-	logrus.Infof("STK Push sent for farm %d by user %d, CheckoutID: %s", farmID, userID, result.CheckoutRequestID)
+	logrus.Infof("M-Pesa payment %s started for farm %d by user %d", result.ID, farmID, userID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":             result.Message,
-		"checkout_request_id": result.CheckoutRequestID,
-		"merchant_request_id": result.MerchantRequestID,
+		"message":             "Check your phone to complete the M-Pesa payment",
+		"checkout_request_id": result.ProviderRequestID,
+		"merchant_request_id": result.ProviderMerchantID,
 		"reference":           req.Reference,
 		"amount":              quote.Amount,
 		"quote":               quote,
 	})
 }
 
-// DynapayCallbackPayload matches the webhook payload
-type DynapayCallbackPayload struct {
-	PaymentID          string  `json:"id"`
-	TenantID           string  `json:"tenant_id"`
-	Status             string  `json:"status"`
-	Amount             float64 `json:"amount"`
-	PhoneNumber        string  `json:"phone_number"`
-	MpesaReference     string  `json:"mpesa_reference"`
-	Reference          string  `json:"reference"`
-	MerchantRequestID  string  `json:"merchant_request_id"`
-	CheckoutRequestID  string  `json:"checkout_request_id"`
-	ResultDescription  string  `json:"result_description"`
-	CreatedAt          string  `json:"created_at"`
-	CallbackReceivedAt string  `json:"callback_received_at"`
-	WebhookURL         string  `json:"webhook_url"`
-}
-
 func RegisterWebhookRoutes(r *gin.Engine) {
 	r.POST("/webhooks/dynapay-payment", HandleDynapayWebhook)
 }
 
-// HandleDynapayWebhook completes a payment we initiated with the result Dynapay reports
+// HandleDynapayWebhook applies a payment outcome Dynapay reports. The body is signed with the
+// webhook secret Dynapay issued for Birdseye (DYNAPAY_WEBHOOK_SECRET).
 func HandleDynapayWebhook(c *gin.Context) {
-	secret := os.Getenv("DYNAPAY_WEBHOOK_SECRET")
-	token := c.Query("token")
-	if secret == "" || subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
-		logrus.Warn("⚠️ Rejected Dynapay webhook with a missing or wrong token")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid body"})
+		return
+	}
+	if err := services.VerifyDynapaySignature(c.GetHeader("Dynapay-Signature"), body); err != nil {
+		logrus.Warnf("Rejected Dynapay webhook: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
 		return
 	}
 
-	var payload DynapayCallbackPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		logrus.Errorf("❌ Invalid webhook payload: %v", err)
+	var event struct {
+		ID   string                  `json:"id"`
+		Type string                  `json:"type"`
+		Data services.DynapayPayment `json:"data"`
+	}
+	if err := json.Unmarshal(body, &event); err != nil || event.Data.ID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
 		return
 	}
 
-	logrus.Infof("📩 Received payment webhook. Payment: %s | Status: %s", payload.PaymentID, payload.Status)
-
 	var payment models.Payment
-	if err := db.DB.Where("payment_id = ?", payload.PaymentID).First(&payment).Error; err != nil {
-		logrus.Warnf("⚠️ Webhook for unknown payment %s", payload.PaymentID)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Payment not found"})
+	if err := db.DB.Where("payment_id = ?", event.Data.ID).First(&payment).Error; err != nil {
+		// Not one of ours (or already cleaned up): acknowledge so Dynapay stops retrying
+		logrus.Warnf("Dynapay webhook %s for unknown payment %s", event.ID, event.Data.ID)
+		c.JSON(http.StatusOK, gin.H{"message": "Ignored"})
 		return
 	}
 
-	// Dynapay retries webhooks; a payment that already succeeded stays that way
-	if payment.Status == "success" {
-		c.JSON(http.StatusOK, gin.H{"message": "Webhook already processed"})
-		return
-	}
-
-	now := models.CustomTime{Time: time.Now().UTC()}
-	payment.Status = payload.Status
-	payment.MpesaReference = payload.MpesaReference
-	payment.ResultDescription = payload.ResultDescription
-	payment.CallbackReceivedAt = &now
-	if payload.Status == "success" {
-		payment.PaidAt = now
-		if payload.Amount > 0 && payload.Amount < payment.Amount {
-			logrus.Warnf("⚠️ Payment %s: paid %.2f but %.2f was due", payment.ID, payload.Amount, payment.Amount)
-			payment.Status = "underpaid"
-		}
-	}
-
-	if err := db.DB.Save(&payment).Error; err != nil {
-		logrus.Errorf("❌ Failed to update payment %s: %v", payment.ID, err)
+	changed, err := services.ApplyDynapayResult(&payment, &event.Data)
+	if err != nil {
+		logrus.Errorf("Failed to apply Dynapay result to payment %s: %v", payment.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update payment"})
+		return
+	}
+	if changed {
+		NotifyPaymentOutcome(&payment)
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Webhook processed successfully"})
+}
+
+// NotifyPaymentOutcome emails the result of a settled M-Pesa payment: success to the farm's owners and
+// managers, failure to whoever paid
+func NotifyPaymentOutcome(payment *models.Payment) {
+	if payment.Status == "success" {
+		logrus.Infof("Farm %d paid via payment %s", payment.FarmID, payment.ID)
+		managers, _ := services.GetFarmManagers(payment.FarmID)
+		for _, user := range managers {
+			go func(u models.User) {
+				if err := email.SendPaymentSuccessEmail(u.Email, u.Username, payment.MpesaReference, payment.Amount); err != nil {
+					logrus.Errorf("Failed to send payment success email: %v", err)
+				}
+			}(user)
+		}
 		return
 	}
 
 	var payer models.User
-	db.DB.First(&payer, payment.UserID)
-
-	if payment.Status == "success" {
-		if err := services.ApplySuccessfulPayment(&payment); err != nil {
-			logrus.Errorf("❌ Failed to apply payment %s to farm %d: %v", payment.ID, payment.FarmID, err)
-		}
-		logrus.Infof("✅ Farm %d paid via payment %s", payment.FarmID, payment.ID)
-
-		managers, _ := services.GetFarmManagers(payment.FarmID)
-		for _, user := range managers {
-			go func(u models.User) {
-				if err := email.SendPaymentSuccessEmail(u.Email, u.Username, payload.MpesaReference, payment.Amount); err != nil {
-					logrus.Errorf("📧 Failed to send payment success email: %v", err)
-				}
-			}(user)
-		}
-	} else if payer.ID != 0 {
-		go func() {
-			msg := payload.ResultDescription
-			if msg == "" {
-				msg = "Payment was not successful"
-			}
-			if err := email.SendPaymentFailureEmail(payer.Email, payer.Username, payment.Amount, msg); err != nil {
-				logrus.Errorf("📧 Failed to send payment failure email: %v", err)
-			}
-		}()
+	if err := db.DB.First(&payer, payment.UserID).Error; err != nil {
+		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Webhook processed successfully"})
+	msg := payment.ResultDescription
+	if msg == "" {
+		msg = "Payment was not successful"
+	}
+	go func() {
+		if err := email.SendPaymentFailureEmail(payer.Email, payer.Username, payment.Amount, msg); err != nil {
+			logrus.Errorf("Failed to send payment failure email: %v", err)
+		}
+	}()
 }
 
 // ListPayments returns the farm's payment history
