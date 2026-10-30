@@ -27,7 +27,7 @@ func (s *InventoryService) GetInventoryByFarm(farmID uint) ([]models.InventoryIt
 
 /// AddInventoryItem adds a new inventory item, sends a WebSocket update, and notifies the user
 func (s *InventoryService) AddInventoryItem(item *models.InventoryItem) error {
-	if err := s.DB.Create(item).Error; err != nil {
+	if err := s.DB.Omit("Flock").Create(item).Error; err != nil {
 		return err
 	}
 
@@ -44,7 +44,7 @@ func (s *InventoryService) AddInventoryItem(item *models.InventoryItem) error {
 
 // UpdateInventoryItem updates an existing inventory item, sends a WebSocket update, and notifies the user
 func (s *InventoryService) UpdateInventoryItem(item *models.InventoryItem) error {
-	if err := s.DB.Save(item).Error; err != nil {
+	if err := s.DB.Omit("Flock").Save(item).Error; err != nil {
 		return err
 	}
 

@@ -52,7 +52,7 @@ func (s *VaccinationService) AddVaccination(vaccination *models.Vaccination) err
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_added", *vaccination)
+	broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_added", *vaccination)
 	return nil
 }
 
@@ -99,7 +99,7 @@ func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, upda
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_updated", vaccination)
+	broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_updated", vaccination)
 	return nil
 }
 
@@ -117,7 +117,7 @@ func (s *VaccinationService) DeleteVaccination(vaccinationID, farmID uint) error
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_deleted", vaccinationID)
+	broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_deleted", vaccinationID)
 	return nil
 }
 // SendVaccinationReminder sends the farm a reminder for an upcoming vaccination

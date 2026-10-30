@@ -1,6 +1,7 @@
 package api
 
 import (
+	"birdseye-backend/pkg/broadcast"
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
@@ -107,6 +108,7 @@ func (h *BudgetHandler) AddBudget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create budget"})
 		return
 	}
+	broadcast.SendBudgetUpdate(farmID, "budget_added", budget)
 
 	c.JSON(http.StatusCreated, budget)
 }
@@ -147,6 +149,7 @@ func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update budget"})
 		return
 	}
+	broadcast.SendBudgetUpdate(farmID, "budget_updated", budget)
 
 	c.JSON(http.StatusOK, budget)
 }
@@ -177,6 +180,7 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete budget"})
 		return
 	}
+	broadcast.SendBudgetUpdate(farmID, "budget_deleted", budget.ID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
 }

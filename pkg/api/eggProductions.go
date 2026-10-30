@@ -6,16 +6,21 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"log"
 	"net/http"
+	"strconv"
+
+	"birdseye-backend/pkg/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // EggProductionHandler handles egg production-related requests
-type EggProductionHandler struct{}
+type EggProductionHandler struct {
+	Service *services.EggProductionService
+}
 
 // SetupEggProductionRoutes sets up the API routes with authentication middleware
 func SetupEggProductionRoutes(r *gin.Engine) {
-	handler := &EggProductionHandler{}
+	handler := &EggProductionHandler{Service: services.NewEggProductionService(db.DB)}
 
 	routes := r.Group("/egg-productions").Use(middlewares.FarmAuth())
 	{
@@ -62,7 +67,7 @@ func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
 	record.ID = 0
 	record.FarmID = farmID
 
-	if err := db.DB.Create(&record).Error; err != nil {
+	if err := h.Service.AddEggProduction(&record); err != nil {
 		log.Println("AddEggProduction: Error creating record:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create record"})
 		return
@@ -96,7 +101,7 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Save(&record).Error; err != nil {
+	if err := h.Service.UpdateEggProduction(&record); err != nil {
 		log.Println("UpdateEggProduction: Error updating record:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update record"})
 		return
@@ -108,18 +113,15 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 // DeleteEggProduction deletes one of the farm's records
 func (h *EggProductionHandler) DeleteEggProduction(c *gin.Context) {
 	farmID, _ := farmContext(c)
-	id := c.Param("id")
-
-	var record models.EggProduction
-	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&record).Error; err != nil {
-		log.Println("DeleteEggProduction: Record not found or unauthorized")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
 
-	if err := db.DB.Delete(&record).Error; err != nil {
-		log.Println("DeleteEggProduction: Error deleting record:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete record"})
+	if err := h.Service.DeleteEggProduction(uint(id), farmID); err != nil {
+		log.Println("DeleteEggProduction: Record not found or unauthorized")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
 		return
 	}
 

@@ -17,7 +17,6 @@ import (
 
 	"net/http"
 
-	"github.com/SherClockHolmes/webpush-go"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -42,31 +41,25 @@ func loadEnv() {
 	}
 }
 
-func generateVAPIDKeys() {
-	privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
-	if err != nil {
-		log.Fatalf("Error generating VAPID keys: %v", err)
-	}
-
-	
-
-	// Save these keys as environment variables
-	os.Setenv("VAPID_PUBLIC_KEY", publicKey)
-	os.Setenv("VAPID_PRIVATE_KEY", privateKey)
-}
-
+// loadVAPIDKeys enables Web Push. The key pair must be fixed in the environment: the client is built
+// with the matching public key (VITE_VAPID_PUBLIC_KEY), so keys generated at boot could never work.
 func loadVAPIDKeys() {
 	vapidPublicKey = os.Getenv("VAPID_PUBLIC_KEY")
 	vapidPrivateKey = os.Getenv("VAPID_PRIVATE_KEY")
 
 	if vapidPublicKey == "" || vapidPrivateKey == "" {
-		log.Println("VAPID keys not found. Generating new keys...")
-		generateVAPIDKeys()
-		vapidPublicKey = os.Getenv("VAPID_PUBLIC_KEY")
-		vapidPrivateKey = os.Getenv("VAPID_PRIVATE_KEY")
+		log.Println("Warning: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set, Web Push disabled")
+		return
 	}
 
-	
+	subscriber := os.Getenv("VAPID_SUBSCRIBER") // e.g. mailto:support@birdseye-poultry.com
+	if subscriber == "" {
+		subscriber = "mailto:support@birdseye-poultry.com"
+	}
+
+	push := services.NewWebPush(db.DB, vapidPublicKey, vapidPrivateKey, subscriber)
+	broadcast.PushToUser = push.SendToUser
+	broadcast.PushToFarm = push.SendToFarm
 }
 
 var upgrader = websocket.Upgrader{
@@ -204,9 +197,6 @@ func main() {
 	// Load environment variables
 	loadEnv()
 
-	// Load VAPID keys
-	loadVAPIDKeys()
-
 	
 
 	// Initialize Google OAuth config
@@ -255,6 +245,9 @@ func main() {
 		log.Fatalf("Migration failed: %v", err)
 	}
 	log.Println("Beta Fields Migration completed successfully")
+
+	// Load VAPID keys (needs the DB for push subscriptions)
+	loadVAPIDKeys()
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()

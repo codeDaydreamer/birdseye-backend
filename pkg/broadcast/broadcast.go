@@ -21,6 +21,13 @@ type client struct {
 	FarmID uint
 }
 
+// Web Push senders, wired up in main when VAPID keys are configured. Notifications also go out as
+// Web Push so users get them when the app isn't open.
+var (
+	PushToUser func(userID uint, title, body, url string)
+	PushToFarm func(farmID uint, title, body, url string)
+)
+
 // UpdateMessage represents a generic WebSocket update message
 type UpdateMessage struct {
 	Type string      `json:"type"`
@@ -98,6 +105,11 @@ func SendSaleUpdate(farmID uint, eventType string, sale interface{}) {
 	sendUpdateToFarm(farmID, eventType, "sale", sale)
 }
 
+// SendBudgetUpdate broadcasts a budget update to every connected member of a farm
+func SendBudgetUpdate(farmID uint, eventType string, budget interface{}) {
+	sendUpdateToFarm(farmID, eventType, "budget", budget)
+}
+
 // SendVaccinationUpdate broadcasts a vaccination update to every connected member of a farm
 func SendVaccinationUpdate(farmID uint, eventType string, vaccination interface{}) {
 	sendUpdateToFarm(farmID, eventType, "vaccination", vaccination)
@@ -158,6 +170,10 @@ func SendNotification(userID uint, title, message, url string) {
 	}
 
 	sendTo(msg, func(cl client) bool { return cl.UserID == userID })
+
+	if PushToUser != nil {
+		go PushToUser(userID, title, message, url)
+	}
 }
 
 // SendFarmNotification sends a notification to every connected member of a farm
@@ -181,4 +197,8 @@ func SendFarmNotification(farmID uint, title, message, url string) {
 	}
 
 	sendTo(msg, func(cl client) bool { return cl.FarmID == farmID })
+
+	if PushToFarm != nil {
+		go PushToFarm(farmID, title, message, url)
+	}
 }

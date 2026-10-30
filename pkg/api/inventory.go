@@ -6,16 +6,21 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"log"
 	"net/http"
+	"strconv"
+
+	"birdseye-backend/pkg/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // InventoryHandler handles inventory-related requests
-type InventoryHandler struct{}
+type InventoryHandler struct {
+	Service *services.InventoryService
+}
 
 // SetupInventoryRoutes sets up the inventory API routes with authentication middleware
 func SetupInventoryRoutes(r *gin.Engine) {
-	handler := &InventoryHandler{}
+	handler := &InventoryHandler{Service: services.NewInventoryService(db.DB)}
 
 	inventoryRoutes := r.Group("/inventory").Use(middlewares.FarmAuth())
 	{
@@ -64,7 +69,7 @@ func (h *InventoryHandler) AddInventoryItem(c *gin.Context) {
 	item.ID = 0
 	item.FarmID = farmID
 
-	if err := db.DB.Omit("Flock").Create(&item).Error; err != nil {
+	if err := h.Service.AddInventoryItem(&item); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create inventory item"})
 		return
 	}
@@ -97,7 +102,7 @@ func (h *InventoryHandler) UpdateInventoryItem(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Omit("Flock").Save(&item).Error; err != nil {
+	if err := h.Service.UpdateInventoryItem(&item); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update inventory item"})
 		return
 	}
@@ -108,17 +113,15 @@ func (h *InventoryHandler) UpdateInventoryItem(c *gin.Context) {
 // DeleteInventoryItem deletes one of the farm's inventory items
 func (h *InventoryHandler) DeleteInventoryItem(c *gin.Context) {
 	farmID, _ := farmContext(c)
-	id := c.Param("id")
-
-	var item models.InventoryItem
-	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&item).Error; err != nil {
-		log.Println("DeleteInventoryItem: Item not found")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Inventory item not found or unauthorized"})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
 
-	if err := db.DB.Delete(&item).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete inventory item"})
+	if err := h.Service.DeleteInventoryItem(uint(id), farmID); err != nil {
+		log.Println("DeleteInventoryItem: Item not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Inventory item not found or unauthorized"})
 		return
 	}
 

@@ -45,7 +45,7 @@ func (s *SalesService) GetSalesByFlockAndPeriod(flockID uint, farmID uint, start
 
 // AddSale adds a new sale, sends a WebSocket update, and notifies the user
 func (s *SalesService) AddSale(sale *models.Sale) error {
-	if err := s.DB.Create(sale).Error; err != nil {
+	if err := s.DB.Omit("Flock").Create(sale).Error; err != nil {
 		return err
 	}
 
@@ -65,7 +65,7 @@ func (s *SalesService) AddSale(sale *models.Sale) error {
 
 // UpdateSale updates an existing sale, sends a WebSocket update, and notifies the user
 func (s *SalesService) UpdateSale(sale *models.Sale) error {
-	if err := s.DB.Save(sale).Error; err != nil {
+	if err := s.DB.Omit("Flock").Save(sale).Error; err != nil {
 		return err
 	}
 

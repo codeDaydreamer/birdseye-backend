@@ -1,6 +1,7 @@
 package api
 
 import (
+	"birdseye-backend/pkg/broadcast"
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
@@ -129,6 +130,7 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination", "details": err.Error()})
 		return
 	}
+	broadcast.SendVaccinationUpdate(farmID, "vaccination_added", vaccination)
 
 	c.JSON(http.StatusCreated, vaccination)
 }
@@ -178,6 +180,7 @@ func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vaccination"})
 		return
 	}
+	broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_updated", vaccination)
 
 	c.JSON(http.StatusOK, vaccination)
 }
@@ -200,6 +203,7 @@ func (h *VaccinationHandler) DeleteVaccination(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete vaccination"})
 		return
 	}
+	broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_deleted", vaccination.ID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Vaccination deleted successfully"})
 }

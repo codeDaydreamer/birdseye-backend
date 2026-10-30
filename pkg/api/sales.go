@@ -6,16 +6,21 @@ import (
 	"birdseye-backend/pkg/middlewares"
 	"log"
 	"net/http"
+	"strconv"
+
+	"birdseye-backend/pkg/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SalesHandler handles sales-related requests
-type SalesHandler struct{}
+type SalesHandler struct {
+	Service *services.SalesService
+}
 
 // SetupSalesRoutes sets up the sales API routes with authentication middleware
 func SetupSalesRoutes(r *gin.Engine) {
-	handler := &SalesHandler{}
+	handler := &SalesHandler{Service: services.NewSalesService(db.DB)}
 
 	salesRoutes := r.Group("/sales").Use(middlewares.FarmAuth())
 	{
@@ -74,7 +79,7 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 	sale.ID = 0
 	sale.FarmID = farmID
 	sale.CreatedByUserID = userID
-	if err := db.DB.Omit("Flock").Create(&sale).Error; err != nil {
+	if err := h.Service.AddSale(&sale); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sale"})
 		return
 	}
@@ -109,7 +114,7 @@ func (h *SalesHandler) UpdateSale(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Omit("Flock").Save(&sale).Error; err != nil {
+	if err := h.Service.UpdateSale(&sale); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sale"})
 		return
 	}
@@ -121,15 +126,14 @@ func (h *SalesHandler) UpdateSale(c *gin.Context) {
 func (h *SalesHandler) DeleteSale(c *gin.Context) {
 	farmID, _ := farmContext(c)
 
-	id := c.Param("id")
-	var sale models.Sale
-	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&sale).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found or unauthorized"})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
 
-	if err := db.DB.Delete(&sale).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete sale"})
+	if err := h.Service.DeleteSale(uint(id), farmID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found or unauthorized"})
 		return
 	}
 

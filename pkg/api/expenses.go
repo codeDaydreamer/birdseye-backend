@@ -5,6 +5,7 @@ import (
 	"birdseye-backend/pkg/models"
 	"log"
 	"net/http"
+	"strconv"
 "birdseye-backend/pkg/middlewares"
 	"github.com/gin-gonic/gin"
 	"birdseye-backend/pkg/services"
@@ -106,7 +107,7 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Omit("Flock").Save(&expense).Error; err != nil {
+	if err := h.Service.UpdateExpense(&expense); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update expense"})
 		return
 	}
@@ -117,16 +118,14 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 // DeleteExpense deletes one of the farm's expenses
 func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
 	farmID, _ := farmContext(c)
-	id := c.Param("id")
-
-	var expense models.Expense
-	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&expense).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Expense not found or unauthorized"})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
 
-	if err := db.DB.Delete(&expense).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete expense"})
+	if err := h.Service.DeleteExpense(uint(id), farmID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Expense not found or unauthorized"})
 		return
 	}
 
