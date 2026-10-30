@@ -10,8 +10,7 @@ import (
 // Flock represents a flock of birds in the farm
 type Flock struct {
 	ID                  uint            `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID              uint            `json:"user_id" gorm:"index;not null"`
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	FarmID uint `json:"farm_id" gorm:"index;not null"` // tenant
 	Name                string          `json:"name" gorm:"not null"`
 	Status              string          `json:"status" gorm:"not null"`
 	InitialBirdCount    int             `json:"initial_bird_count" gorm:"not null"`
@@ -65,17 +64,17 @@ func (f *Flock) AfterFind(tx *gorm.DB) error {
 
 
 func (f *Flock) AfterCreate(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate(f.UserID, "flock_added", *f)
+	broadcast.SendFlockUpdate(f.FarmID, "flock_added", *f)
 	return nil
 }
 
 func (f *Flock) AfterUpdate(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate(f.UserID, "flock_updated", *f)
+	broadcast.SendFlockUpdate(f.FarmID, "flock_updated", *f)
 	return nil
 }
 
 func (f *Flock) AfterDelete(tx *gorm.DB) error {
-	broadcast.SendFlockUpdate(f.UserID, "flock_deleted", f.ID)
+	broadcast.SendFlockUpdate(f.FarmID, "flock_deleted", f.ID)
 	return nil
 }
 

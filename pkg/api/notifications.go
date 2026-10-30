@@ -17,7 +17,7 @@ type NotificationHandler struct{}
 // SetupNotificationRoutes sets up the notification API routes with authentication middleware
 func SetupNotificationRoutes(r *gin.Engine) {
 	handler := &NotificationHandler{}
-	notificationRoutes := r.Group("/notifications").Use(middlewares.AuthMiddleware())
+	notificationRoutes := r.Group("/notifications").Use(middlewares.FarmAuth())
 	{
 		notificationRoutes.GET("/", handler.GetNotifications)
 		notificationRoutes.POST("/", handler.CreateNotification)
@@ -25,16 +25,12 @@ func SetupNotificationRoutes(r *gin.Engine) {
 	}
 }
 
-// GetNotifications retrieves notifications for the authenticated user
+// GetNotifications retrieves the user's notifications for the current farm
 func (h *NotificationHandler) GetNotifications(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	farmID, userID := farmContext(c)
 
 	var notifications []models.Notification
-	if err := db.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&notifications).Error; err != nil {
+	if err := db.DB.Where("user_id = ? AND farm_id = ?", userID, farmID).Order("created_at DESC").Find(&notifications).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve notifications"})
 		return
 	}
@@ -42,13 +38,19 @@ func (h *NotificationHandler) GetNotifications(c *gin.Context) {
 	c.JSON(http.StatusOK, notifications)
 }
 
-// CreateNotification creates a new notification and broadcasts it via WebSocket
+// CreateNotification creates a notification for the user and broadcasts it via WebSocket
 func (h *NotificationHandler) CreateNotification(c *gin.Context) {
+	farmID, userID := farmContext(c)
+
 	var notification models.Notification
 	if err := c.ShouldBindJSON(&notification); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	notification.ID = 0
+	notification.UserID = userID
+	notification.FarmID = farmID
 
 	if err := db.DB.Create(&notification).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create notification"})
@@ -62,12 +64,13 @@ func (h *NotificationHandler) CreateNotification(c *gin.Context) {
 }
 
 
-// MarkNotificationAsRead marks a notification as read
+// MarkNotificationAsRead marks one of the user's notifications as read
 func (h *NotificationHandler) MarkNotificationAsRead(c *gin.Context) {
+	_, userID := farmContext(c)
 	id := c.Param("id")
 	var notification models.Notification
 
-	if err := db.DB.First(&notification, "id = ?", id).Error; err != nil {
+	if err := db.DB.First(&notification, "id = ? AND user_id = ?", id, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Notification not found"})
 		return
 	}

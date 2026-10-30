@@ -17,7 +17,7 @@ type EggProductionHandler struct{}
 func SetupEggProductionRoutes(r *gin.Engine) {
 	handler := &EggProductionHandler{}
 
-	routes := r.Group("/egg-productions").Use(middlewares.AuthMiddleware())
+	routes := r.Group("/egg-productions").Use(middlewares.FarmAuth())
 	{
 		routes.GET("/", handler.GetEggProduction)
 		routes.POST("/", handler.AddEggProduction)
@@ -26,28 +26,15 @@ func SetupEggProductionRoutes(r *gin.Engine) {
 	}
 }
 
-// GetEggProduction retrieves egg production records for the authenticated user
+// GetEggProduction retrieves the farm's egg production records
 func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
-	userID, exists := c.Get("user_id")  // Get user ID from context
-	if !exists {
-		log.Println("GetEggProduction: User not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		log.Println("GetEggProduction: Error fetching user from DB:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var records []models.EggProduction
 	if err := db.DB.Table("egg_productions").
 		Select("egg_productions.*, flocks.name AS flock_name").
 		Joins("JOIN flocks ON flocks.id = egg_productions.flock_id").
-		Where("egg_productions.user_id = ?", user.ID).
+		Where("egg_productions.farm_id = ?", farmID).
 		Find(&records).Error; err != nil {
 		log.Println("GetEggProduction: Error retrieving records:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve records"})
@@ -57,20 +44,9 @@ func (h *EggProductionHandler) GetEggProduction(c *gin.Context) {
 	c.JSON(http.StatusOK, records)
 }
 
-// AddEggProduction adds a new egg production record for the authenticated user
+// AddEggProduction adds a new egg production record to the farm
 func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var record models.EggProduction
 	if err := c.ShouldBindJSON(&record); err != nil {
@@ -78,8 +54,13 @@ func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
 		return
 	}
 
-	// Assign authenticated user's ID to the record
-	record.UserID = user.ID
+	if !flockInFarm(record.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+
+	record.ID = 0
+	record.FarmID = farmID
 
 	if err := db.DB.Create(&record).Error; err != nil {
 		log.Println("AddEggProduction: Error creating record:", err)
@@ -90,32 +71,28 @@ func (h *EggProductionHandler) AddEggProduction(c *gin.Context) {
 	c.JSON(http.StatusCreated, record)
 }
 
-// UpdateEggProduction updates an existing record for the authenticated user
+// UpdateEggProduction updates one of the farm's records
 func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
-
+	farmID, _ := farmContext(c)
 	id := c.Param("id")
 
 	var record models.EggProduction
-	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&record).Error; err != nil {
+	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&record).Error; err != nil {
 		log.Println("UpdateEggProduction: Record not found or unauthorized")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
 		return
 	}
+	original := record
 
 	if err := c.ShouldBindJSON(&record); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// The body can't move the record to another record or farm
+	record.ID, record.FarmID, record.CreatedAt = original.ID, original.FarmID, original.CreatedAt
+	if record.FlockID != original.FlockID && !flockInFarm(record.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
 
@@ -128,25 +105,13 @@ func (h *EggProductionHandler) UpdateEggProduction(c *gin.Context) {
 	c.JSON(http.StatusOK, record)
 }
 
-// DeleteEggProduction deletes a record for the authenticated user
+// DeleteEggProduction deletes one of the farm's records
 func (h *EggProductionHandler) DeleteEggProduction(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
-
+	farmID, _ := farmContext(c)
 	id := c.Param("id")
 
 	var record models.EggProduction
-	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&record).Error; err != nil {
+	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&record).Error; err != nil {
 		log.Println("DeleteEggProduction: Record not found or unauthorized")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or unauthorized"})
 		return

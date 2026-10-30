@@ -17,8 +17,8 @@ type VaccinationHandler struct{}
 func SetupVaccinationRoutes(r *gin.Engine) {
 	handler := &VaccinationHandler{}
 
-	// Routes for vaccinations tied to a flock
-	vaccinationRoutes := r.Group("/flocks/:id/vaccinations").Use(middlewares.AuthMiddleware())
+	// Routes for vaccinations tied to one of the farm's flocks
+	vaccinationRoutes := r.Group("/flocks/:id/vaccinations").Use(middlewares.FarmAuth(), requireFlockInFarm())
 	{
 		vaccinationRoutes.GET("/", handler.GetVaccinations)
 		vaccinationRoutes.POST("/", handler.AddVaccination)
@@ -26,34 +26,38 @@ func SetupVaccinationRoutes(r *gin.Engine) {
 		vaccinationRoutes.DELETE("/:vaccination_id", handler.DeleteVaccination)
 	}
 
-	// ✅ New route for fetching vaccinations by logged-in user
-	userVaccinationRoutes := r.Group("/vaccinations").Use(middlewares.AuthMiddleware())
+	// All vaccinations across the farm's flocks
+	farmVaccinationRoutes := r.Group("/vaccinations").Use(middlewares.FarmAuth())
 	{
-		userVaccinationRoutes.GET("/", handler.GetVaccinationsByUserID)
+		farmVaccinationRoutes.GET("/", handler.GetFarmVaccinations)
 	}
 }
 
-// ✅ NEW: Get vaccinations by user ID
-func (h *VaccinationHandler) GetVaccinationsByUserID(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
+// requireFlockInFarm rejects requests whose :id flock doesn't belong to the caller's farm
+func requireFlockInFarm() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		farmID, _ := farmContext(c)
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid flock ID"})
+			c.Abort()
+			return
+		}
+		if !flockInFarm(uint(id), farmID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Flock not found"})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
+}
 
-	// Fetch user data to ensure the user exists
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
+// GetFarmVaccinations retrieves vaccinations for all of the farm's flocks
+func (h *VaccinationHandler) GetFarmVaccinations(c *gin.Context) {
+	farmID, _ := farmContext(c)
 
-	// Join vaccinations with flocks to ensure only this user's records are fetched
 	var vaccinations []models.Vaccination
-	if err := db.DB.
-		Joins("JOIN flocks ON flocks.id = vaccinations.flock_id").
-		Where("flocks.user_id = ?", user.ID).
-		Find(&vaccinations).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Find(&vaccinations).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve vaccinations"})
 		return
 	}
@@ -61,13 +65,9 @@ func (h *VaccinationHandler) GetVaccinationsByUserID(c *gin.Context) {
 	c.JSON(http.StatusOK, vaccinations)
 }
 
-// Existing method: GetVaccinations by flock ID
+// GetVaccinations retrieves vaccinations for one flock
 func (h *VaccinationHandler) GetVaccinations(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid flock ID"})
-		return
-	}
+	id, _ := strconv.Atoi(c.Param("id"))
 
 	var vaccinations []models.Vaccination
 	if err := db.DB.Where("flock_id = ?", id).Find(&vaccinations).Error; err != nil {
@@ -79,11 +79,8 @@ func (h *VaccinationHandler) GetVaccinations(c *gin.Context) {
 }
 
 func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid flock ID"})
-		return
-	}
+	farmID, userID := farmContext(c)
+	id, _ := strconv.Atoi(c.Param("id"))
 
 	var rawData map[string]interface{}
 	if err := c.ShouldBindJSON(&rawData); err != nil {
@@ -108,13 +105,6 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 		return
 	}
 
-	if userID, ok := rawData["user_id"].(float64); ok {
-		vaccination.UserID = uint(userID)
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid 'user_id'"})
-		return
-	}
-
 	// New: handle mode_of_administration (optional)
 	if mode, ok := rawData["mode_of_administration"].(string); ok {
 		vaccination.ModeOfAdministration = mode
@@ -132,21 +122,30 @@ func (h *VaccinationHandler) AddVaccination(c *gin.Context) {
 	}
 	vaccination.Date = parsedDate
 	vaccination.FlockID = uint(id)
+	vaccination.FarmID = farmID
+	vaccination.CreatedByUserID = userID
 
-	result := db.DB.Debug().Create(&vaccination)
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination", "details": result.Error.Error()})
+	if err := db.DB.Create(&vaccination).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add vaccination", "details": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, vaccination)
 }
 
-func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
-	id, err1 := strconv.Atoi(c.Param("id"))
-	vaccinationID, err2 := strconv.Atoi(c.Param("vaccination_id"))
+// vaccinationEditableFields are the only columns a client may change on update
+var vaccinationEditableFields = map[string]bool{
+	"vaccine_name":           true,
+	"status":                 true,
+	"date":                   true,
+	"mode_of_administration": true,
+	"period":                 true,
+}
 
-	if err1 != nil || err2 != nil {
+func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	vaccinationID, err := strconv.Atoi(c.Param("vaccination_id"))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
@@ -163,14 +162,19 @@ func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
 		return
 	}
 
-	// No change needed here for mode_of_administration as it will be updated if included in updatedData map
+	validUpdates := make(map[string]interface{})
+	for key, value := range updatedData {
+		if vaccinationEditableFields[key] {
+			validUpdates[key] = value
+		}
+	}
 
 	query := db.DB.Model(&vaccination)
-	if _, exists := updatedData["date"]; !exists {
+	if _, exists := validUpdates["date"]; !exists {
 		query = query.Omit("date")
 	}
 
-	if err := query.Updates(updatedData).Error; err != nil {
+	if err := query.Updates(validUpdates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vaccination"})
 		return
 	}
@@ -179,10 +183,9 @@ func (h *VaccinationHandler) UpdateVaccination(c *gin.Context) {
 }
 
 func (h *VaccinationHandler) DeleteVaccination(c *gin.Context) {
-	id, err1 := strconv.Atoi(c.Param("id"))
-	vaccinationID, err2 := strconv.Atoi(c.Param("vaccination_id"))
-
-	if err1 != nil || err2 != nil {
+	id, _ := strconv.Atoi(c.Param("id"))
+	vaccinationID, err := strconv.Atoi(c.Param("vaccination_id"))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}

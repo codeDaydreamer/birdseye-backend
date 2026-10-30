@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -165,4 +166,22 @@ func UpdateTrialPeriods() error {
 	}
 
 	return nil
+}
+
+// MarshalJSON never exposes the password hash in API responses (Password still binds from JSON input)
+func (u User) MarshalJSON() ([]byte, error) {
+	type alias User
+	return json.Marshal(&struct {
+		*alias
+		Password string `json:"password,omitempty"`
+	}{alias: (*alias)(&u)})
+}
+
+// MarshalJSON never exposes the password hash in API responses (Password still binds from JSON input)
+func (a Admin) MarshalJSON() ([]byte, error) {
+	type alias Admin
+	return json.Marshal(&struct {
+		*alias
+		Password string `json:"password,omitempty"`
+	}{alias: (*alias)(&a)})
 }

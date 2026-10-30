@@ -64,7 +64,7 @@ func getReportDateRange(month, year int) (time.Time, time.Time) {
 	return startDate, endDate
 }
 
-func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
+func GenerateFinancialReport(db *gorm.DB, farmID, userID uint) (string, error) {
 	log.Println("Starting financial report generation...")
 
 	currentYear := time.Now().Year()
@@ -80,7 +80,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 	}
 
 	log.Println("Fetching financial data for all flocks of the user...")
-	if err := db.Where("user_id = ? AND year = ?", userID, currentYear).Find(&financialData).Error; err != nil {
+	if err := db.Where("farm_id = ? AND year = ?", farmID, currentYear).Find(&financialData).Error; err != nil {
 		log.Println("Error fetching financial data:", err)
 		return "", fmt.Errorf("failed to fetch financial data: %w", err)
 	}
@@ -176,6 +176,7 @@ func GenerateFinancialReport(db *gorm.DB, userID uint) (string, error) {
 		ReportType:  "Financial",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

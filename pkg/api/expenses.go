@@ -20,7 +20,7 @@ type ExpenseHandler struct {
 func SetupExpenseRoutes(r *gin.Engine, expenseService *services.ExpenseService) {
 	handler := &ExpenseHandler{Service: expenseService} // Inject the service
 
-	expenseRoutes := r.Group("/expenses").Use(middlewares.AuthMiddleware())
+	expenseRoutes := r.Group("/expenses").Use(middlewares.FarmAuth())
 	{
 		expenseRoutes.GET("/", handler.GetExpenses)
 		expenseRoutes.POST("/", handler.AddExpense)
@@ -35,26 +35,13 @@ func SetupExpenseRoutes(r *gin.Engine, expenseService *services.ExpenseService) 
 
 
 
-// GetExpenses retrieves expenses for the authenticated user
+// GetExpenses retrieves the farm's expenses
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	log.Println("GET /expenses called")
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		log.Println("GetExpenses: User not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		log.Println("GetExpenses: Error fetching user from DB:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var expenses []models.Expense
-	if err := db.DB.Where("user_id = ?", user.ID).Find(&expenses).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Find(&expenses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve expenses"})
 		return
 	}
@@ -62,21 +49,9 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	c.JSON(http.StatusOK, expenses)
 }
 
-// AddExpense adds a new expense for the authenticated user
+// AddExpense adds a new expense to the farm
 func (h *ExpenseHandler) AddExpense(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		log.Printf("❌ Error fetching user: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
+	farmID, userID := farmContext(c)
 
 	var expense models.Expense
 	if err := c.ShouldBindJSON(&expense); err != nil {
@@ -85,13 +60,18 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 		return
 	}
 
-	// Assign the authenticated user's ID to the expense
-	expense.UserID = user.ID
+	if !flockInFarm(expense.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+
+	expense.ID = 0
+	expense.FarmID = farmID
+	expense.CreatedByUserID = userID
 
 	// ✅ Call ExpenseService to handle logic
 	log.Println("📌 Calling ExpenseService to add expense...")
-	err = h.Service.AddExpense(&expense) // ✅ Now it correctly calls the service
-	if err != nil {
+	if err := h.Service.AddExpense(&expense); err != nil {
 		log.Printf("❌ Error adding expense: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create expense"})
 		return
@@ -101,36 +81,32 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 	c.JSON(http.StatusCreated, expense)
 }
 
-// UpdateExpense updates an existing expense for the authenticated user
+// UpdateExpense updates one of the farm's expenses
 func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		log.Println("UpdateExpense: User not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
-
+	farmID, _ := farmContext(c)
 	id := c.Param("id")
 
 	var expense models.Expense
-	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&expense).Error; err != nil {
+	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&expense).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Expense not found or unauthorized"})
 		return
 	}
+	original := expense
 
 	if err := c.ShouldBindJSON(&expense); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := db.DB.Save(&expense).Error; err != nil {
+	// The body can't move the expense to another record, farm or author
+	expense.ID, expense.FarmID = original.ID, original.FarmID
+	expense.CreatedByUserID, expense.CreatedAt = original.CreatedByUserID, original.CreatedAt
+	if expense.FlockID != original.FlockID && !flockInFarm(expense.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+
+	if err := db.DB.Omit("Flock").Save(&expense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update expense"})
 		return
 	}
@@ -138,26 +114,13 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 	c.JSON(http.StatusOK, expense)
 }
 
-// DeleteExpense deletes an expense for the authenticated user
+// DeleteExpense deletes one of the farm's expenses
 func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
-	userID, exists := c.Get("user_id") // Get user ID from context
-	if !exists {
-		log.Println("DeleteExpense: User not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Fetch user data from the database
-	user, err := models.GetUserByID(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-		return
-	}
-
+	farmID, _ := farmContext(c)
 	id := c.Param("id")
 
 	var expense models.Expense
-	if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).First(&expense).Error; err != nil {
+	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&expense).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Expense not found or unauthorized"})
 		return
 	}
@@ -173,16 +136,11 @@ func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
 
 func (h *ExpenseHandler) GetTotalBudget(c *gin.Context) {
 	log.Println("GET /expenses/budget called")
-
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var totalBudget float64
 	err := db.DB.Model(&models.Expense{}).
-		Where("user_id = ?", userID).
+		Where("farm_id = ?", farmID).
 		Select("COALESCE(SUM(budget), 0)").
 		Scan(&totalBudget).Error
 
@@ -195,12 +153,7 @@ func (h *ExpenseHandler) GetTotalBudget(c *gin.Context) {
 }
 func (h *ExpenseHandler) UpdateBudget(c *gin.Context) {
 	log.Println("PUT /expenses/budget called")
-
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var budgetUpdate struct {
 		FlockID uint    `json:"flock_id"`
@@ -213,7 +166,7 @@ func (h *ExpenseHandler) UpdateBudget(c *gin.Context) {
 	}
 
 	err := db.DB.Model(&models.Expense{}).
-		Where("flock_id = ? AND user_id = ?", budgetUpdate.FlockID, userID).
+		Where("flock_id = ? AND farm_id = ?", budgetUpdate.FlockID, farmID).
 		Update("budget", budgetUpdate.Budget).Error
 
 	if err != nil {

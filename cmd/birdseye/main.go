@@ -87,7 +87,7 @@ func handleWebSocket(c *gin.Context) {
 		return
 	}
 
-	user, err := middlewares.GetUserFromToken(token)
+	userID, err := middlewares.ParseUserToken(token)
 	if err != nil {
 		if errors.Is(err, middlewares.ErrTokenExpired) {
 			log.Println("WebSocket connection attempt with expired token")
@@ -99,13 +99,27 @@ func handleWebSocket(c *gin.Context) {
 		return
 	}
 
+	// Farm comes from ?farm_id= (browsers can't set headers on a WS upgrade), else the user's only farm
+	member, err := middlewares.ResolveFarmMember(userID, c.Query("farm_id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, middlewares.ErrFarmRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, middlewares.ErrNotFarmMember):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this farm"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve farm"})
+		}
+		return
+	}
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("Error upgrading to WebSocket:", err)
 		return
 	}
 
-	broadcast.HandleWebSocket(conn, user.ID)
+	broadcast.HandleWebSocket(conn, userID, member.FarmID)
 }
 
 // Uptime tracking
@@ -155,25 +169,26 @@ func startVaccinationReminderTask(vaccinationService *services.VaccinationServic
 
 		for _, vaccination := range vaccinations {
 			if now.Before(vaccination.Date.Add(14 * 24 * time.Hour)) {
-				err := vaccinationService.SendVaccinationReminder(&vaccination, vaccination.UserID)
+				err := vaccinationService.SendVaccinationReminder(&vaccination)
 				if err != nil {
 					log.Printf("Error sending reminder for vaccination %d: %v", vaccination.ID, err)
 					continue
 				}
 
-				// Get user info (assuming you have a method to fetch user by ID)
-				user, err := services.GetUserByID(vaccination.UserID)
+				// Email the farm's owners and managers
+				managers, err := vaccinationService.GetFarmManagers(vaccination.FarmID)
 				if err != nil {
-					log.Printf("Error fetching user for vaccination %d: %v", vaccination.ID, err)
+					log.Printf("Error fetching farm managers for vaccination %d: %v", vaccination.ID, err)
 					continue
 				}
 
-				// Send vaccination reminder email using email package function
-				err = email.SendVaccinationReminderEmail(user.Email, user.Username, &vaccination)
-				if err != nil {
-					log.Printf("Error sending email for vaccination %d: %v", vaccination.ID, err)
-				} else {
-					log.Printf("Vaccination reminder email sent for vaccination %d", vaccination.ID)
+				for _, user := range managers {
+					err = email.SendVaccinationReminderEmail(user.Email, user.Username, &vaccination)
+					if err != nil {
+						log.Printf("Error sending email for vaccination %d to user %d: %v", vaccination.ID, user.ID, err)
+					} else {
+						log.Printf("Vaccination reminder email sent for vaccination %d to user %d", vaccination.ID, user.ID)
+					}
 				}
 			} else {
 				log.Printf("Vaccination %d is no longer within the reminder window", vaccination.ID)
@@ -240,10 +255,6 @@ func main() {
 		log.Fatalf("Migration failed: %v", err)
 	}
 	log.Println("Beta Fields Migration completed successfully")
-	if err := models.BackfillFarms(); err != nil {
-		log.Fatalf("Farm backfill failed: %v", err)
-	}
-	log.Println("Farm backfill completed successfully")
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()
@@ -256,7 +267,7 @@ func main() {
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173","http://localhost:3000", "https://app.birdseye-poultry.com", "https://www.app.birdseye-poultry.com","https://www.console.birdseye-poultry.com","https://console.birdseye-poultry.com"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Content-Type", "Authorization", "X-Farm-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
@@ -293,7 +304,7 @@ func main() {
 	router.GET("/ws", handleWebSocket)
 	router.GET("/wss", handleWebSocket)
 
-	router.POST("/api/push/subscribe", middlewares.AuthMiddleware(), api.HandlePushSubscription)
+	router.POST("/api/push/subscribe", middlewares.UserAuth(), api.HandlePushSubscription)
 
 
 	// Start WebSocket broadcasting

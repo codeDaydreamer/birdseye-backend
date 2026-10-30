@@ -24,7 +24,7 @@ func SetupReportsRoutes(r *gin.Engine) {
 		ReportsService: services.NewReportsService(db.DB),
 	}
 
-	reportsRoutes := r.Group("/reports").Use(middlewares.AuthMiddleware())
+	reportsRoutes := r.Group("/reports").Use(middlewares.FarmAuth())
 	{
 		reportsRoutes.GET("/user/:userID", handler.GetUserReports)
 		reportsRoutes.POST("/expenses", handler.GenerateExpenseReport)
@@ -123,7 +123,7 @@ func (h *ReportsHandler) GenerateExpenseReport(c *gin.Context) {
 	}
 
 	// Generate the expense report
-	pdfPath, err := reports.GenerateExpenseReport(db.DB, authUserID, startDate, endDate)
+	pdfPath, err := reports.GenerateExpenseReport(db.DB, c.GetUint("farm_id"), authUserID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return
@@ -180,7 +180,7 @@ func (h *ReportsHandler) GenerateSalesReport(c *gin.Context) {
 	}
 
 	// Generate the sales report
-	pdfPath, err := reports.GenerateSalesReport(db.DB, authUserID, startDate, endDate)
+	pdfPath, err := reports.GenerateSalesReport(db.DB, c.GetUint("farm_id"), authUserID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return
@@ -248,7 +248,7 @@ func (h *ReportsHandler) GenerateEggProductionReport(c *gin.Context) {
 	logrus.Infof("Parsed dates - StartDate: %v, EndDate: %v", startDate, endDate)
 
 	// Generate the egg production report
-	pdfPath, err := reports.GenerateEggProductionReport(db.DB, authUserID, startDate, endDate)
+	pdfPath, err := reports.GenerateEggProductionReport(db.DB, c.GetUint("farm_id"), authUserID, startDate, endDate)
 	if err != nil {
 		logrus.Errorf("Failed to generate egg production report: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
@@ -309,7 +309,7 @@ func (h *ReportsHandler) GenerateInventoryReport(c *gin.Context) {
 	}
 
 	// Generate the inventory report
-	pdfPath, err := reports.GenerateInventoryReport(db.DB, authUserID, startDate, endDate)
+	pdfPath, err := reports.GenerateInventoryReport(db.DB, c.GetUint("farm_id"), authUserID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return
@@ -366,7 +366,7 @@ func (h *ReportsHandler) GenerateFlockReport(c *gin.Context) {
 	}
 
 	// Generate the flock report
-	pdfPath, err := reports.GenerateFlockReport(db.DB, authUserID, startDate, endDate)
+	pdfPath, err := reports.GenerateFlockReport(db.DB, c.GetUint("farm_id"), authUserID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return
@@ -392,7 +392,7 @@ func (h *ReportsHandler) GenerateFinancialReport(c *gin.Context) {
 	}
 
 	// Generate the financial report for all flocks of the user
-	pdfPath, err := reports.GenerateFinancialReport(db.DB, authUserID)
+	pdfPath, err := reports.GenerateFinancialReport(db.DB, c.GetUint("farm_id"), authUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report", "details": err.Error()})
 		return

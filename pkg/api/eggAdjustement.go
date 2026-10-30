@@ -19,7 +19,7 @@ func SetupEggAdjustmentRoutes(r *gin.Engine) {
 		Service: services.NewEggAdjustmentService(db.DB),
 	}
 
-	routes := r.Group("/egg-adjustments").Use(middlewares.AuthMiddleware())
+	routes := r.Group("/egg-adjustments").Use(middlewares.FarmAuth())
 	{
 		routes.GET("/", handler.GetAdjustments)
 		routes.POST("/", handler.AddAdjustment)
@@ -29,8 +29,8 @@ func SetupEggAdjustmentRoutes(r *gin.Engine) {
 }
 
 func (h *EggAdjustmentHandler) GetAdjustments(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	adjustments, err := h.Service.GetAdjustmentsByUser(userID)
+	farmID, _ := farmContext(c)
+	adjustments, err := h.Service.GetAdjustmentsByFarm(farmID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch adjustments"})
 		return
@@ -39,13 +39,18 @@ func (h *EggAdjustmentHandler) GetAdjustments(c *gin.Context) {
 }
 
 func (h *EggAdjustmentHandler) AddAdjustment(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	farmID, _ := farmContext(c)
 	var adj models.EggAdjustment
 	if err := c.ShouldBindJSON(&adj); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	adj.UserID = userID
+	if !flockInFarm(adj.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+	adj.ID = 0
+	adj.FarmID = farmID
 
 	if err := h.Service.AddAdjustment(&adj); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add adjustment"})
@@ -55,16 +60,27 @@ func (h *EggAdjustmentHandler) AddAdjustment(c *gin.Context) {
 }
 
 func (h *EggAdjustmentHandler) UpdateAdjustment(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	id := c.Param("id")
+	farmID, _ := farmContext(c)
+	id := parseUint(c.Param("id"))
+
+	var existing models.EggAdjustment
+	if err := db.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&existing).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "adjustment not found"})
+		return
+	}
 
 	var adj models.EggAdjustment
 	if err := c.ShouldBindJSON(&adj); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	adj.ID = parseUint(id)
-	adj.UserID = userID
+	if adj.FlockID != existing.FlockID && !flockInFarm(adj.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+	adj.ID = existing.ID
+	adj.FarmID = farmID
+	adj.CreatedAt = existing.CreatedAt
 
 	if err := h.Service.UpdateAdjustment(&adj); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update adjustment"})
@@ -74,10 +90,10 @@ func (h *EggAdjustmentHandler) UpdateAdjustment(c *gin.Context) {
 }
 
 func (h *EggAdjustmentHandler) DeleteAdjustment(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	farmID, _ := farmContext(c)
 	id := parseUint(c.Param("id"))
 
-	if err := h.Service.DeleteAdjustment(id, userID); err != nil {
+	if err := h.Service.DeleteAdjustment(id, farmID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}

@@ -9,25 +9,33 @@ import (
 )
 
 var (
-	clients   = make(map[*websocket.Conn]uint) // Connected clients mapped to user IDs
+	clients   = make(map[*websocket.Conn]client) // Connected clients mapped to their user + farm
 	broadcast = make(chan []byte)               // Channel for broadcasting messages
 	mutex     = sync.Mutex{}                     // Mutex to protect concurrent access
 )
+
+// client identifies who is on a connection: updates fan out either to every connection of a
+// farm (farm-scoped domains) or to one user (domains not yet migrated to farms)
+type client struct {
+	UserID uint
+	FarmID uint
+}
 
 // UpdateMessage represents a generic WebSocket update message
 type UpdateMessage struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
 	UserID uint      `json:"user_id,omitempty"`
+	FarmID uint      `json:"farm_id,omitempty"`
 }
 
 // HandleWebSocket manages WebSocket connections
-func HandleWebSocket(conn *websocket.Conn, userID uint) {
+func HandleWebSocket(conn *websocket.Conn, userID, farmID uint) {
 	mutex.Lock()
-	clients[conn] = userID
+	clients[conn] = client{UserID: userID, FarmID: farmID}
 	mutex.Unlock()
 
-	log.Println("New WebSocket client connected for user:", userID)
+	log.Println("New WebSocket client connected for user:", userID, "farm:", farmID)
 
 defer func() {
 		mutex.Lock()
@@ -60,64 +68,72 @@ func BroadcastMessages() {
 		mutex.Unlock()
 	}
 }
-// SendFlockUpdate broadcasts a flock update to a specific user
-func SendFlockUpdate(userID uint, eventType string, flock interface{}) {
-	sendUpdateToUser(userID, eventType, "flock", flock)
+// SendFlockUpdate broadcasts a flock update to every connected member of a farm
+func SendFlockUpdate(farmID uint, eventType string, flock interface{}) {
+	sendUpdateToFarm(farmID, eventType, "flock", flock)
 }
 
-// SendEggProductionUpdate broadcasts an egg production update to a specific user
-func SendEggProductionUpdate(userID uint, eventType string, record interface{}) {
-	sendUpdateToUser(userID, eventType, "egg_production", record)
+// SendEggProductionUpdate broadcasts an egg production update to every connected member of a farm
+func SendEggProductionUpdate(farmID uint, eventType string, record interface{}) {
+	sendUpdateToFarm(farmID, eventType, "egg_production", record)
 }
 
-// SendEggAdjustmentUpdate broadcasts an egg adjustment update to a specific user
-func SendEggAdjustmentUpdate(userID uint, eventType string, adjustment interface{}) {
-	sendUpdateToUser(userID, eventType, "egg_adjustment", adjustment)
+// SendEggAdjustmentUpdate broadcasts an egg adjustment update to every connected member of a farm
+func SendEggAdjustmentUpdate(farmID uint, eventType string, adjustment interface{}) {
+	sendUpdateToFarm(farmID, eventType, "egg_adjustment", adjustment)
 }
 
-// SendExpenseUpdate broadcasts an expense update to a specific user
-func SendExpenseUpdate(userID uint, eventType string, expense interface{}) {
-	sendUpdateToUser(userID, eventType, "expense", expense)
+// SendExpenseUpdate broadcasts an expense update to every connected member of a farm
+func SendExpenseUpdate(farmID uint, eventType string, expense interface{}) {
+	sendUpdateToFarm(farmID, eventType, "expense", expense)
 }
 
-// SendInventoryUpdate broadcasts an inventory update to a specific user
-func SendInventoryUpdate(userID uint, eventType string, inventoryItem interface{}) {
-	sendUpdateToUser(userID, eventType, "inventory", inventoryItem)
+// SendInventoryUpdate broadcasts an inventory update to every connected member of a farm
+func SendInventoryUpdate(farmID uint, eventType string, inventoryItem interface{}) {
+	sendUpdateToFarm(farmID, eventType, "inventory", inventoryItem)
 }
 
-// SendSaleUpdate broadcasts a sale update to a specific user
-func SendSaleUpdate(userID uint, eventType string, sale interface{}) {
-	sendUpdateToUser(userID, eventType, "sale", sale)
+// SendSaleUpdate broadcasts a sale update to every connected member of a farm
+func SendSaleUpdate(farmID uint, eventType string, sale interface{}) {
+	sendUpdateToFarm(farmID, eventType, "sale", sale)
 }
 
-// SendVaccinationUpdate broadcasts a vaccination update to a specific user
-func SendVaccinationUpdate(userID uint, eventType string, vaccination interface{}) {
-	sendUpdateToUser(userID, eventType, "vaccination", vaccination)
+// SendVaccinationUpdate broadcasts a vaccination update to every connected member of a farm
+func SendVaccinationUpdate(farmID uint, eventType string, vaccination interface{}) {
+	sendUpdateToFarm(farmID, eventType, "vaccination", vaccination)
 }
 
 
 
 
 
-// Generic function to send an update message to a specific user
-func sendUpdateToUser(userID uint, eventType, category string, data interface{}) {
+// Generic function to send an update message to every connected member of a farm
+func sendUpdateToFarm(farmID uint, eventType, category string, data interface{}) {
+	if farmID == 0 {
+		return
+	}
 	msg, err := json.Marshal(UpdateMessage{
 		Type:   eventType,
 		Data:   map[string]interface{}{"category": category, "payload": data},
-		UserID: userID,
+		FarmID: farmID,
 	})
 	if err != nil {
 		log.Println("Error marshalling WebSocket message:", err)
 		return
 	}
 
+	sendTo(msg, func(cl client) bool { return cl.FarmID == farmID })
+}
+
+// sendTo writes msg to every connection matching the filter, dropping dead connections
+func sendTo(msg []byte, match func(client) bool) {
 	mutex.Lock()
-	for client, uid := range clients {
-		if uid == userID {
-			if err := client.WriteMessage(websocket.TextMessage, msg); err != nil {
+	for conn, cl := range clients {
+		if match(cl) {
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				log.Println("Error sending message to client:", err)
-				client.Close()
-				delete(clients, client)
+				conn.Close()
+				delete(clients, conn)
 			}
 		}
 	}
@@ -141,15 +157,28 @@ func SendNotification(userID uint, title, message, url string) {
 		return
 	}
 
-	mutex.Lock()
-	for client, uid := range clients {
-		if uid == userID {
-			if err := client.WriteMessage(websocket.TextMessage, msg); err != nil {
-				log.Println("Error sending notification to client:", err)
-				client.Close()
-				delete(clients, client)
-			}
-		}
+	sendTo(msg, func(cl client) bool { return cl.UserID == userID })
+}
+
+// SendFarmNotification sends a notification to every connected member of a farm
+func SendFarmNotification(farmID uint, title, message, url string) {
+	if farmID == 0 {
+		return
 	}
-	mutex.Unlock()
+	log.Println("Sending notification to farm:", farmID, title, message)
+	msg, err := json.Marshal(UpdateMessage{
+		Type: "notification",
+		Data: map[string]interface{}{
+			"title": title,
+			"body":  message,
+			"url":   url,
+		},
+		FarmID: farmID,
+	})
+	if err != nil {
+		log.Println("Error marshalling notification message:", err)
+		return
+	}
+
+	sendTo(msg, func(cl client) bool { return cl.FarmID == farmID })
 }

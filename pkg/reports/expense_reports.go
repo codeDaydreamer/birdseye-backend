@@ -40,7 +40,7 @@ type ExpenseReportData struct {
 	TotalAmount      string
 	ChartImagePath   string
 }
-func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
+func GenerateExpenseReport(db *gorm.DB, farmID, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting expense report generation...")
 
 	// Fetch expenses and calculate totals per category.
@@ -56,7 +56,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 	}
 
 	log.Println("Fetching expenses from the database...")
-	if err := db.Where("user_id = ? AND date BETWEEN ? AND ?", userID, startDate, endDate).Find(&expenses).Error; err != nil {
+	if err := db.Where("farm_id = ? AND date BETWEEN ? AND ?", farmID, startDate, endDate).Find(&expenses).Error; err != nil {
 		log.Println("Error fetching expenses:", err)
 		return "", fmt.Errorf("failed to fetch expenses: %w", err)
 	}
@@ -164,6 +164,7 @@ func GenerateExpenseReport(db *gorm.DB, userID uint, startDate, endDate time.Tim
 		ReportType:  "Expense",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

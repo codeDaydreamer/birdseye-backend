@@ -37,7 +37,7 @@ func SetupRoutes(router *gin.Engine) {
 
 		// Protected user routes
 		protected := auth.Group("/")
-		protected.Use(middlewares.AuthMiddleware())
+		protected.Use(middlewares.UserAuth())
 		protected.GET("/me", handleGetUserProfile)
 		protected.PUT("/update-profile", handleUpdateProfile)
 		protected.POST("/update-profile-picture", handleUpdateProfilePicture)

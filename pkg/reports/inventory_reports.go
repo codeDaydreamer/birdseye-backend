@@ -33,7 +33,7 @@ type InventoryReportData struct {
 	ChartImagePath string
 }
 
-func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
+func GenerateInventoryReport(db *gorm.DB, farmID, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting inventory report generation...")
 
 	var inventoryItems []models.InventoryItem
@@ -47,7 +47,7 @@ func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.T
 	}
 
 	log.Println("Fetching inventory items from the database...")
-	if err := db.Where("user_id = ?", userID).Find(&inventoryItems).Error; err != nil {
+	if err := db.Where("farm_id = ?", farmID).Find(&inventoryItems).Error; err != nil {
 		log.Println("Error fetching inventory items:", err)
 		return "", fmt.Errorf("failed to fetch inventory items: %w", err)
 	}
@@ -128,6 +128,7 @@ func GenerateInventoryReport(db *gorm.DB, userID uint, startDate, endDate time.T
 		ReportType:  "Inventory",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

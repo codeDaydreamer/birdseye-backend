@@ -13,7 +13,7 @@ type Report struct {
 	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 	Content     string    `json:"content"`
 	UserID      uint      `json:"user_id" gorm:"not null"` // Foreign key to associate with a specific user
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	FarmID uint `json:"farm_id" gorm:"index"` // farm the report covers
 	Name        string    `json:"name" gorm:"type:varchar(255);not null"` // Report filename (for user-friendly display)
 	StartDate   time.Time `json:"start_date" gorm:"type:datetime(3)"` // Start date of the report range
 	EndDate     time.Time `json:"end_date" gorm:"type:datetime(3)"`   // End date of the report range

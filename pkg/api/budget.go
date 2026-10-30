@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"errors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +17,7 @@ type BudgetHandler struct{}
 func SetupBudgetRoutes(r *gin.Engine) {
 	handler := &BudgetHandler{}
 
-	budgetRoutes := r.Group("/budget").Use(middlewares.AuthMiddleware())
+	budgetRoutes := r.Group("/budget").Use(middlewares.FarmAuth())
 	{
 		budgetRoutes.GET("/", handler.GetBudgets)
 		budgetRoutes.GET("/flock/:flockID", handler.GetBudgetsByFlock)
@@ -29,18 +28,14 @@ func SetupBudgetRoutes(r *gin.Engine) {
 	}
 }
 
-// GetBudgets retrieves all budgets for the authenticated user
+// GetBudgets retrieves all budgets for the farm
 func (h *BudgetHandler) GetBudgets(c *gin.Context) {
 	log.Println("GET /budget called")
 
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var budgets []models.Budget
-	if err := db.DB.Where("user_id = ?", user.ID).Find(&budgets).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Find(&budgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve budgets"})
 		return
 	}
@@ -52,15 +47,11 @@ func (h *BudgetHandler) GetBudgets(c *gin.Context) {
 func (h *BudgetHandler) GetBudgetsByFlock(c *gin.Context) {
 	log.Println("GET /budget/flock/:flockID called")
 
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	flockID := c.Param("flockID")
 	var budgets []models.Budget
-	if err := db.DB.Where("flock_id = ? AND user_id = ?", flockID, user.ID).Find(&budgets).Error; err != nil {
+	if err := db.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).Find(&budgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve budgets for flock"})
 		return
 	}
@@ -72,11 +63,7 @@ func (h *BudgetHandler) GetBudgetsByFlock(c *gin.Context) {
 func (h *BudgetHandler) GetBudgetByMonthYear(c *gin.Context) {
 	log.Println("GET /budget/:month/:year called")
 
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	month, err := strconv.Atoi(c.Param("month"))
 	if err != nil {
@@ -91,7 +78,7 @@ func (h *BudgetHandler) GetBudgetByMonthYear(c *gin.Context) {
 	}
 
 	var budget models.Budget
-	if err := db.DB.Where("user_id = ? AND month = ? AND year = ?", user.ID, month, year).First(&budget).Error; err != nil {
+	if err := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
@@ -99,13 +86,9 @@ func (h *BudgetHandler) GetBudgetByMonthYear(c *gin.Context) {
 	c.JSON(http.StatusOK, budget)
 }
 
-// AddBudget adds a new budget for the authenticated user
+// AddBudget adds a new budget for the farm
 func (h *BudgetHandler) AddBudget(c *gin.Context) {
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var budget models.Budget
 	if err := c.ShouldBindJSON(&budget); err != nil {
@@ -113,8 +96,14 @@ func (h *BudgetHandler) AddBudget(c *gin.Context) {
 		return
 	}
 
-	budget.UserID = user.ID
-	if err := db.DB.Create(&budget).Error; err != nil {
+	if !flockInFarm(budget.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+
+	budget.ID = 0
+	budget.FarmID = farmID
+	if err := db.DB.Omit("Flock").Create(&budget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create budget"})
 		return
 	}
@@ -122,13 +111,9 @@ func (h *BudgetHandler) AddBudget(c *gin.Context) {
 	c.JSON(http.StatusCreated, budget)
 }
 
-// UpdateBudget updates an existing budget for the authenticated user
+// UpdateBudget updates an existing budget for the farm
 func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	month, err := strconv.Atoi(c.Param("month"))
 	if err != nil {
@@ -143,7 +128,7 @@ func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
 	}
 
 	var budget models.Budget
-	if err := db.DB.Where("user_id = ? AND month = ? AND year = ?", user.ID, month, year).First(&budget).Error; err != nil {
+	if err := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
@@ -158,7 +143,7 @@ func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
 	}
 
 	budget.Amount = input.Amount
-	if err := db.DB.Save(&budget).Error; err != nil {
+	if err := db.DB.Omit("Flock").Save(&budget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update budget"})
 		return
 	}
@@ -166,13 +151,9 @@ func (h *BudgetHandler) UpdateBudget(c *gin.Context) {
 	c.JSON(http.StatusOK, budget)
 }
 
-// DeleteBudget deletes a budget for the authenticated user
+// DeleteBudget deletes a budget for the farm
 func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
-	user, err := getUserFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	month, err := strconv.Atoi(c.Param("month"))
 	if err != nil {
@@ -187,7 +168,7 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 	}
 
 	var budget models.Budget
-	if err := db.DB.Where("user_id = ? AND month = ? AND year = ?", user.ID, month, year).First(&budget).Error; err != nil {
+	if err := db.DB.Where("farm_id = ? AND month = ? AND year = ?", farmID, month, year).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
@@ -198,24 +179,4 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
-}
-
-// Helper function to get the authenticated user
-func getUserFromContext(c *gin.Context) (*models.User, error) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		return nil, errors.New("Unauthorized")
-	}
-
-	userID, ok := userIDVal.(uint)
-	if !ok {
-		return nil, errors.New("invalid user id")
-	}
-
-	user, err := models.GetUserByID(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
 }

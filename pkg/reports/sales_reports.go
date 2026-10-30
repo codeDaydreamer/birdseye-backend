@@ -46,7 +46,7 @@ type SalesReportData struct {
 	ChartImagePath  string
 }
 
-func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
+func GenerateSalesReport(db *gorm.DB, farmID, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting sales report generation...")
 
 	var sales []models.Sale
@@ -61,7 +61,7 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 	}
 
 	log.Println("Fetching sales from the database...")
-	if err := db.Where("user_id = ? AND date BETWEEN ? AND ?", userID, startDate, endDate).Find(&sales).Error; err != nil {
+	if err := db.Where("farm_id = ? AND date BETWEEN ? AND ?", farmID, startDate, endDate).Find(&sales).Error; err != nil {
 		log.Println("Error fetching sales:", err)
 		return "", fmt.Errorf("failed to fetch sales: %w", err)
 	}
@@ -140,6 +140,7 @@ func GenerateSalesReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 		ReportType:  "Sales",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

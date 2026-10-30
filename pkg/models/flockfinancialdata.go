@@ -6,8 +6,7 @@ package models
 type FlocksFinancialData struct {
     ID         uint    `json:"id" gorm:"primaryKey;autoIncrement"`
     FlockID    uint    `json:"flock_id" gorm:"index;not null"`
-    UserID     uint    `json:"user_id" gorm:"index;not null"`
-    FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+    FarmID uint `json:"farm_id" gorm:"index;not null"` // tenant
     Month      int     `json:"month" gorm:"not null"`
     Year       int     `json:"year" gorm:"not null"`
     Revenue    float64 `json:"revenue" gorm:"not null"`

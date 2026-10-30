@@ -16,17 +16,17 @@ func NewFlockFinancialService(db *gorm.DB) *FlockFinancialService {
 	return &FlockFinancialService{DB: db}
 }
 
-// GetFinancialDataByUser retrieves financial records for a specific user
-func (s *FlockFinancialService) GetFinancialDataByUser(userID uint) ([]models.FlocksFinancialData, error) {
+// GetFinancialDataByFarm retrieves financial records for a specific farm
+func (s *FlockFinancialService) GetFinancialDataByFarm(farmID uint) ([]models.FlocksFinancialData, error) {
 	var financialData []models.FlocksFinancialData
-	err := s.DB.Where("user_id = ?", userID).Find(&financialData).Error
+	err := s.DB.Where("farm_id = ?", farmID).Find(&financialData).Error
 	return financialData, err
 }
 
 // GetFinancialDataByFlock retrieves financial data for a specific flock
-func (s *FlockFinancialService) GetFinancialDataByFlock(flockID uint, userID uint) (*models.FlocksFinancialData, error) {
+func (s *FlockFinancialService) GetFinancialDataByFlock(flockID uint, farmID uint) (*models.FlocksFinancialData, error) {
 	var financialData models.FlocksFinancialData
-	err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).First(&financialData).Error
+	err := s.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).First(&financialData).Error
 	if err != nil {
 		return nil, err
 	}
@@ -36,8 +36,8 @@ func (s *FlockFinancialService) GetFinancialDataByFlock(flockID uint, userID uin
 // AddOrUpdateFinancialData adds or updates financial data for a flock
 func (s *FlockFinancialService) AddOrUpdateFinancialData(financialData *models.FlocksFinancialData) error {
 	var existing models.FlocksFinancialData
-	err := s.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?", 
-		financialData.FlockID, financialData.UserID, financialData.Month, financialData.Year).
+	err := s.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?", 
+		financialData.FlockID, financialData.FarmID, financialData.Month, financialData.Year).
 		First(&existing).Error
 	
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -54,6 +54,6 @@ func (s *FlockFinancialService) AddOrUpdateFinancialData(financialData *models.F
 }
 
 // DeleteFinancialData removes financial data for a flock
-func (s *FlockFinancialService) DeleteFinancialData(flockID uint, userID uint) error {
-	return s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).Delete(&models.FlocksFinancialData{}).Error
+func (s *FlockFinancialService) DeleteFinancialData(flockID uint, farmID uint) error {
+	return s.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).Delete(&models.FlocksFinancialData{}).Error
 }

@@ -7,8 +7,7 @@ import (
 // Expense represents an expense entry in the database
 type Expense struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID      uint      `json:"user_id" gorm:"index;not null"`
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	FarmID uint `json:"farm_id" gorm:"index;not null"` // tenant
 	CreatedByUserID uint `json:"created_by_user_id" gorm:"index"` // staff member who logged this record
 	FlockID     uint      `json:"flock_id" gorm:"not null;index"` // Foreign key reference to Flock
 	Date        time.Time `json:"date" gorm:"not null;type:date"`

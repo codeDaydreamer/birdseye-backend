@@ -5,6 +5,7 @@ import (
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/broadcast"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"fmt"
 
 	"log"
@@ -30,17 +31,17 @@ func NewFlockService(db *gorm.DB, eggService *EggProductionService, salesService
 }
 
 
-// GetFlocksByUser retrieves flock records for a specific user
-func (s *FlockService) GetFlocksByUser(userID uint) ([]models.Flock, error) {
+// GetFlocksByFarm retrieves flock records for a specific farm
+func (s *FlockService) GetFlocksByFarm(farmID uint) ([]models.Flock, error) {
 	var flocks []models.Flock
-	err := s.DB.Where("user_id = ?", userID).Find(&flocks).Error
+	err := s.DB.Where("farm_id = ?", farmID).Find(&flocks).Error
 	return flocks, err
 }
 
-// GetFlockByID retrieves a single flock by ID and user
-func (s *FlockService) GetFlockByID(flockID, userID uint) (*models.Flock, error) {
+// GetFlockByID retrieves a single flock by ID within a farm
+func (s *FlockService) GetFlockByID(flockID, farmID uint) (*models.Flock, error) {
 	var flock models.Flock
-	err := s.DB.Where("id = ? AND user_id = ?", flockID, userID).First(&flock).Error
+	err := s.DB.Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error
 	if err != nil {
 		return nil, errors.New("flock not found")
 	}
@@ -54,19 +55,19 @@ func (s *FlockService) AddFlock(flock *models.Flock) error {
     end := start.AddDate(0, 1, -1) // Last day of the month
 
     // Compute initial metrics before saving
-    s.CalculateFlockMetrics(flock, flock.UserID, start, end)
+    s.CalculateFlockMetrics(flock, start, end)
     fmt.Printf("Metrics after calculation: %+v\n", flock)
 
     // Save to database
-    if err := s.DB.Create(flock).Error; err != nil {
+    if err := s.DB.Omit(clause.Associations).Create(flock).Error; err != nil {
         fmt.Printf("Error creating flock: %v\n", err)
         return err
     }
 
     fmt.Printf("Flock successfully added with ID %d\n", flock.ID)
     
-    // Send real-time update with userID
-    broadcast.SendFlockUpdate(flock.UserID, "flock_added", *flock)
+    // Send real-time update to the farm
+    broadcast.SendFlockUpdate(flock.FarmID, "flock_added", *flock)
     return nil
 }
 
@@ -77,21 +78,21 @@ func (s *FlockService) UpdateFlock(flock *models.Flock) error {
     start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
     end := start.AddDate(0, 1, -1) // Last day of the month
 
-    s.CalculateFlockMetrics(flock, flock.UserID, start, end)
+    s.CalculateFlockMetrics(flock, start, end)
 
-    if err := s.DB.Save(flock).Error; err != nil {
+    if err := s.DB.Omit(clause.Associations).Save(flock).Error; err != nil {
         log.Printf("❌ Error saving flock ID %d: %v\n", flock.ID, err)
         return err
     }
     
-    // Send real-time update with userID
-    broadcast.SendFlockUpdate(flock.UserID, "flock_updated", *flock)
+    // Send real-time update to the farm
+    broadcast.SendFlockUpdate(flock.FarmID, "flock_updated", *flock)
     return nil
 }
 
-func (s *FlockService) DeleteFlock(flockID, userID uint) error {
+func (s *FlockService) DeleteFlock(flockID, farmID uint) error {
     var flock models.Flock
-    if err := s.DB.Where("id = ? AND user_id = ?", flockID, userID).First(&flock).Error; err != nil {
+    if err := s.DB.Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error; err != nil {
         return errors.New("flock not found")
     }
 
@@ -99,17 +100,17 @@ func (s *FlockService) DeleteFlock(flockID, userID uint) error {
         return err
     }
 
-    // Send real-time update with userID
-    broadcast.SendFlockUpdate(userID, "flock_deleted", flockID)
+    // Send real-time update to the farm
+    broadcast.SendFlockUpdate(farmID, "flock_deleted", flockID)
     return nil
 }
 
 
-func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, userID uint, start, end time.Time) {
+func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, start, end time.Time) {
     log.Printf("Calculating metrics for Flock ID %d...", flock.ID)
 
     s.CalculateMortalityRate(flock)
-    s.CalculateRevenueAndExpenses(flock, userID, start, end) // ✅ Now includes date range
+    s.CalculateRevenueAndExpenses(flock, start, end) // ✅ Now includes date range
  
 
     log.Printf("Metrics before saving: %+v\n", flock)
@@ -163,11 +164,11 @@ func (s *FlockService) CalculateMortalityRate(flock *models.Flock) {
 
 
 
-func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID uint, start, end time.Time) {
+func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, start, end time.Time) {
     var totalRevenue, totalEggSales, totalExpenses float64
 
     // Fetch sales within the specified date range
-    sales, err := s.SalesService.GetSalesByFlockAndPeriod(flock.ID, userID, start, end)
+    sales, err := s.SalesService.GetSalesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
     if err != nil {
         fmt.Println("Error fetching flock sales:", err)
         return
@@ -182,7 +183,7 @@ func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID u
     }
 
     // Fetch expenses within the specified date range
-    expenses, err := s.ExpenseService.GetExpensesByFlockAndPeriod(flock.ID, userID, start, end)
+    expenses, err := s.ExpenseService.GetExpensesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
     if err != nil {
         fmt.Println("Error fetching flock expenses:", err)
         return
@@ -199,7 +200,7 @@ func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID u
     // Store financial data in a separate table
 	financialData := models.FlocksFinancialData{
 		FlockID:    flock.ID,
-		UserID:     userID,
+		FarmID:     flock.FarmID,
 		Month:      int(start.Month()),  // Convert time.Month to int
 		Year:       start.Year(),
 		Revenue:    totalRevenue,
@@ -210,7 +211,7 @@ func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, userID u
 	
 
     // Upsert into the database
-    if err := s.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?", flock.ID, userID, start.Month(), start.Year()).
+    if err := s.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?", flock.ID, flock.FarmID, start.Month(), start.Year()).
         Assign(financialData).FirstOrCreate(&financialData).Error; err != nil {
         fmt.Println("Error updating flock financial data:", err)
     }

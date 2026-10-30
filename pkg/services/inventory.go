@@ -18,10 +18,10 @@ func NewInventoryService(db *gorm.DB) *InventoryService {
 	return &InventoryService{DB: db}
 }
 
-// GetInventoryByUser retrieves inventory items for a specific user
-func (s *InventoryService) GetInventoryByUser(userID uint) ([]models.InventoryItem, error) {
+// GetInventoryByFarm retrieves inventory items for a specific farm
+func (s *InventoryService) GetInventoryByFarm(farmID uint) ([]models.InventoryItem, error) {
 	var items []models.InventoryItem
-	err := s.DB.Where("user_id = ?", userID).Find(&items).Error
+	err := s.DB.Where("farm_id = ?", farmID).Find(&items).Error
 	return items, err
 }
 
@@ -31,11 +31,11 @@ func (s *InventoryService) AddInventoryItem(item *models.InventoryItem) error {
 		return err
 	}
 
-	// Send real-time update with userID
-	broadcast.SendInventoryUpdate(item.UserID, "inventory_added", *item)
+	// Send real-time update to the farm
+	broadcast.SendInventoryUpdate(item.FarmID, "inventory_added", *item)
 
-	// Send notification to the user
-	broadcast.SendNotification(item.UserID, "New Inventory Item Added", 
+	// Send notification to the farm
+	broadcast.SendFarmNotification(item.FarmID, "New Inventory Item Added", 
 		fmt.Sprintf("Item '%s' has been added to your inventory.", item.ItemName), 
 		"/inventory")
 
@@ -48,11 +48,11 @@ func (s *InventoryService) UpdateInventoryItem(item *models.InventoryItem) error
 		return err
 	}
 
-	// Send real-time update with userID
-	broadcast.SendInventoryUpdate(item.UserID, "inventory_updated", *item)
+	// Send real-time update to the farm
+	broadcast.SendInventoryUpdate(item.FarmID, "inventory_updated", *item)
 
-	// Send notification to the user
-	broadcast.SendNotification(item.UserID, "Inventory Item Updated", 
+	// Send notification to the farm
+	broadcast.SendFarmNotification(item.FarmID, "Inventory Item Updated", 
 		fmt.Sprintf("Item '%s' has been updated in your inventory.", item.ItemName), 
 		"/inventory")
 
@@ -60,9 +60,9 @@ func (s *InventoryService) UpdateInventoryItem(item *models.InventoryItem) error
 }
 
 // DeleteInventoryItem removes an inventory item by ID, sends a WebSocket update, and notifies the user
-func (s *InventoryService) DeleteInventoryItem(itemID uint, userID uint) error {
+func (s *InventoryService) DeleteInventoryItem(itemID uint, farmID uint) error {
 	var item models.InventoryItem
-	if err := s.DB.Where("id = ? AND user_id = ?", itemID, userID).First(&item).Error; err != nil {
+	if err := s.DB.Where("id = ? AND farm_id = ?", itemID, farmID).First(&item).Error; err != nil {
 		return errors.New("inventory item not found")
 	}
 
@@ -70,11 +70,11 @@ func (s *InventoryService) DeleteInventoryItem(itemID uint, userID uint) error {
 		return err
 	}
 
-	// Send real-time update with userID
-	broadcast.SendInventoryUpdate(userID, "inventory_deleted", itemID)
+	// Send real-time update to the farm
+	broadcast.SendInventoryUpdate(farmID, "inventory_deleted", itemID)
 
-	// Send notification to the user
-	broadcast.SendNotification(userID, "Inventory Item Deleted", 
+	// Send notification to the farm
+	broadcast.SendFarmNotification(farmID, "Inventory Item Deleted", 
 		fmt.Sprintf("Item '%s' has been removed from your inventory.", item.ItemName), 
 		"/inventory")
 

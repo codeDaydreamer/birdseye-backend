@@ -87,7 +87,6 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 		return "", nil, fmt.Errorf("failed to exchange token: %w", err)
 	}
 
-	fmt.Println("Token successfully exchanged:", token)
 
 	// Fetch user info
 	userInfo, err := fetchGoogleUserInfo(token.AccessToken)
@@ -110,7 +109,14 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 				TrialEndsAt:    time.Now().AddDate(0, 0, 30), // 30 days from now
 			}
 
-			if err := db.DB.Create(&user).Error; err != nil {
+			// Every new user starts as the owner of their own farm
+			if err := db.DB.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Create(&user).Error; err != nil {
+					return err
+				}
+				_, err := models.CreateFarmForUser(tx, &user)
+				return err
+			}); err != nil {
 				log.Println("User registration failed:", err)
 				return "", nil, fmt.Errorf("failed to create user: %w", err)
 			}
@@ -139,7 +145,6 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 		return "", nil, fmt.Errorf("error generating token: %w", err)
 	}
 
-	fmt.Println("Successfully generated JWT token:", tokenString)
 	return tokenString, &user, nil
 }
 
@@ -234,9 +239,14 @@ func RegisterUser(user *models.User) (*models.User, error) {
 	user.TrialEndsAt = time.Now().AddDate(0, 0, 30)
 	user.IsTrialActive = true
 
-	// Insert user into database
-	if result := db.DB.Create(user); result.Error != nil {
-		err := result.Error
+	// Insert user into database, as the owner of their own new farm
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		_, err := models.CreateFarmForUser(tx, user)
+		return err
+	}); err != nil {
 
 		// Check if error is a MySQL duplicate entry error
 		var mysqlErr *mysql.MySQLError
@@ -298,8 +308,6 @@ if err := db.DB.Save(&user).Error; err != nil {
 }
 
 func generateJWT(user models.User) (string, error) {
-	log.Printf("generateJWT: Using JWTSecret - %s", middlewares.JWTSecret)
-
 	if middlewares.JWTSecret == "" {
 		return "", errors.New("JWT secret is not set")
 	}
@@ -311,58 +319,6 @@ func generateJWT(user models.User) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(middlewares.JWTSecret))
-}
-
-// GetUserFromToken retrieves user details from the token and fetches fresh data from the database
-func GetUserFromToken(tokenString string) (*models.User, error) {
-	if middlewares.JWTSecret == "" {
-		return nil, errors.New("JWT secret is not set")
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return []byte(middlewares.JWTSecret), nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("could not parse token: %w", err)
-	}
-
-	// Check if the token is valid
-	if !token.Valid {
-		return nil, errors.New("invalid token")
-	}
-
-	// Check for token expiration
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		if exp, ok := claims["exp"].(float64); ok {
-			if time.Now().Unix() > int64(exp) {
-				return nil, ErrTokenExpired // Token has expired
-			}
-		}
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, errors.New("could not parse token claims")
-	}
-
-	// Extract the user ID from the claims
-	user := &models.User{}
-	if id, ok := claims["id"].(float64); ok {
-		user.ID = uint(id) // Updated to uint
-	} else {
-		return nil, errors.New("invalid token claims: missing user ID")
-	}
-
-	// Fetch the latest user details from the database based on the user ID
-	if err := db.DB.First(user, user.ID).Error; err != nil {
-		return nil, fmt.Errorf("user not found in database: %w", err)
-	}
-
-	return user, nil
 }
 
 func GetUserByID(userID uint) (*models.User, error) {

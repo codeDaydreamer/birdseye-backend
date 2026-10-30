@@ -52,7 +52,7 @@ func (s *VaccinationService) AddVaccination(vaccination *models.Vaccination) err
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_added", *vaccination)
+	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_added", *vaccination)
 	return nil
 }
 
@@ -99,14 +99,14 @@ func (s *VaccinationService) UpdateVaccination(flockID, vaccinationID uint, upda
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_updated", vaccination)
+	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_updated", vaccination)
 	return nil
 }
 
-// DeleteVaccination deletes a vaccination record
-func (s *VaccinationService) DeleteVaccination(vaccinationID uint) error {
+// DeleteVaccination deletes one of a farm's vaccination records
+func (s *VaccinationService) DeleteVaccination(vaccinationID, farmID uint) error {
 	var vaccination models.Vaccination
-	if err := s.DB.First(&vaccination, vaccinationID).Error; err != nil {
+	if err := s.DB.Where("id = ? AND farm_id = ?", vaccinationID, farmID).First(&vaccination).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("vaccination record not found")
 		}
@@ -117,11 +117,11 @@ func (s *VaccinationService) DeleteVaccination(vaccinationID uint) error {
 		return err
 	}
 
-	broadcast.SendFlockUpdate(vaccination.FlockID, "vaccination_deleted", vaccinationID)
+	broadcast.SendFlockUpdate(vaccination.FarmID, "vaccination_deleted", vaccinationID)
 	return nil
 }
-// SendVaccinationReminder sends a reminder to the user for upcoming vaccinations
-func (s *VaccinationService) SendVaccinationReminder(vaccination *models.Vaccination, userID uint) error {
+// SendVaccinationReminder sends the farm a reminder for an upcoming vaccination
+func (s *VaccinationService) SendVaccinationReminder(vaccination *models.Vaccination) error {
 	// Calculate the reminder date (e.g., 3 days before the vaccination date)
 	reminderDate := vaccination.Date.AddDate(0, 0, -3) // Set to 3 days before the vaccination date
 
@@ -144,7 +144,7 @@ func (s *VaccinationService) SendVaccinationReminder(vaccination *models.Vaccina
 			"vaccination_date": vaccination.Date.Format("2006-01-02"), // Include the vaccination date
 			"flock_name":       flock.Name, // Include the flock name
 		}
-		broadcast.SendVaccinationUpdate(userID, "vaccination_reminder", reminderData)
+		broadcast.SendVaccinationUpdate(vaccination.FarmID, "vaccination_reminder", reminderData)
 		log.Println("✅ WebSocket update sent.")
 
 		// Send push notification with vaccination name and flock name
@@ -153,9 +153,20 @@ func (s *VaccinationService) SendVaccinationReminder(vaccination *models.Vaccina
 		url := "/vaccination/" + fmt.Sprintf("%d", vaccination.ID)
 
 		log.Printf("🔔 Sending push notification: Title='%s', Message='%s', URL='%s'\n", title, message, url)
-		broadcast.SendNotification(userID, title, message, url)
+		broadcast.SendFarmNotification(vaccination.FarmID, title, message, url)
 		log.Println("✅ Push notification sent.")
 	}
 
 	return nil
+}
+
+// GetFarmManagers returns the active owners and managers of a farm, who receive farm-wide emails
+func (s *VaccinationService) GetFarmManagers(farmID uint) ([]models.User, error) {
+	var users []models.User
+	err := s.DB.
+		Joins("JOIN farm_members ON farm_members.user_id = users.id").
+		Where("farm_members.farm_id = ? AND farm_members.status = ? AND farm_members.role IN ?",
+			farmID, "active", []string{models.FarmRoleOwner, models.FarmRoleManager}).
+		Find(&users).Error
+	return users, err
 }

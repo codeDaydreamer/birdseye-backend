@@ -1,7 +1,10 @@
 package models
 
 import (
+	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // Farm roles
@@ -48,4 +51,20 @@ type FarmInvite struct {
 	Status    string    `gorm:"default:pending" json:"status"` // pending | accepted | revoked | expired
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// CreateFarmForUser creates a new Farm owned by the user, plus their owner FarmMember row
+func CreateFarmForUser(tx *gorm.DB, user *User) (*Farm, error) {
+	farm := Farm{
+		Name:          fmt.Sprintf("%s's Farm", user.Username),
+		OwnerUserID:   user.ID,
+		PaymentStatus: user.PaymentStatus,
+	}
+	if err := tx.Omit("Subscription", "BillingInfo").Create(&farm).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Create(&FarmMember{FarmID: farm.ID, UserID: user.ID, Role: FarmRoleOwner}).Error; err != nil {
+		return nil, err
+	}
+	return &farm, nil
 }

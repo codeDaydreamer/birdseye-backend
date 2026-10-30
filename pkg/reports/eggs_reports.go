@@ -44,7 +44,7 @@ type EggProductionReportData struct {
 	ChartImagePath string
 }
 
-func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
+func GenerateEggProductionReport(db *gorm.DB, farmID, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting egg production report generation...")
 
 	var flockTotals = make(map[string]int)
@@ -74,7 +74,7 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 	if err := db.Table("egg_productions").
 		Select("flocks.name AS flock_name, egg_productions.eggs_collected, egg_productions.price_per_unit, egg_productions.date_produced, (egg_productions.eggs_collected * egg_productions.price_per_unit) AS total_revenue").
 		Joins("JOIN flocks ON flocks.id = egg_productions.flock_id").
-		Where("egg_productions.user_id = ? AND egg_productions.date_produced BETWEEN ? AND ?", userID, startDate, endDate).
+		Where("egg_productions.farm_id = ? AND egg_productions.date_produced BETWEEN ? AND ?", farmID, startDate, endDate).
 		Scan(&productions).Error; err != nil {
 		log.Println("Error fetching egg production records:", err)
 		return "", fmt.Errorf("failed to fetch egg production records: %w", err)
@@ -190,6 +190,7 @@ func GenerateEggProductionReport(db *gorm.DB, userID uint, startDate, endDate ti
 		ReportType:  "Egg Production",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

@@ -18,7 +18,7 @@ type FlockFinancialHandler struct{}
 func SetupFlockFinancialRoutes(r *gin.Engine) {
 	handler := &FlockFinancialHandler{}
 
-	financialRoutes := r.Group("/flock-financial").Use(middlewares.AuthMiddleware())
+	financialRoutes := r.Group("/flock-financial").Use(middlewares.FarmAuth())
 	{
 		financialRoutes.GET("/", handler.GetFinancialData)
 		financialRoutes.GET("/flock/:flockID", handler.GetFinancialDataByFlock)
@@ -28,19 +28,14 @@ func SetupFlockFinancialRoutes(r *gin.Engine) {
 	}
 }
 
-// GetFinancialData retrieves all financial data for the authenticated user
+// GetFinancialData retrieves all financial data for the farm
 func (h *FlockFinancialHandler) GetFinancialData(c *gin.Context) {
 	log.Println("GET /flock-financial called")
 
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	userID := userIDVal.(uint)
+	farmID, _ := farmContext(c)
 
 	var financialData []models.FlocksFinancialData
-	if err := db.DB.Where("user_id = ?", userID).Find(&financialData).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Find(&financialData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve financial data"})
 		return
 	}
@@ -52,12 +47,7 @@ func (h *FlockFinancialHandler) GetFinancialData(c *gin.Context) {
 func (h *FlockFinancialHandler) GetFinancialDataByFlock(c *gin.Context) {
 	log.Println("GET /flock-financial/flock/:flockID called")
 
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	userID := userIDVal.(uint)
+	farmID, _ := farmContext(c)
 
 	flockID, err := strconv.Atoi(c.Param("flockID"))
 	if err != nil {
@@ -66,7 +56,7 @@ func (h *FlockFinancialHandler) GetFinancialDataByFlock(c *gin.Context) {
 	}
 
 	var financialData models.FlocksFinancialData
-	if err := db.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).First(&financialData).Error; err != nil {
+	if err := db.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).First(&financialData).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Financial data not found"})
 		return
 	}
@@ -76,12 +66,7 @@ func (h *FlockFinancialHandler) GetFinancialDataByFlock(c *gin.Context) {
 
 // AddOrUpdateFinancialData adds or updates financial data for a flock
 func (h *FlockFinancialHandler) AddOrUpdateFinancialData(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	userID := userIDVal.(uint)
+	farmID, _ := farmContext(c)
 
 	var financialData models.FlocksFinancialData
 	if err := c.ShouldBindJSON(&financialData); err != nil {
@@ -89,9 +74,15 @@ func (h *FlockFinancialHandler) AddOrUpdateFinancialData(c *gin.Context) {
 		return
 	}
 
-	financialData.UserID = userID
-	if err := db.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?",
-		financialData.FlockID, financialData.UserID, financialData.Month, financialData.Year).
+	if !flockInFarm(financialData.FlockID, farmID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+
+	financialData.ID = 0
+	financialData.FarmID = farmID
+	if err := db.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?",
+		financialData.FlockID, financialData.FarmID, financialData.Month, financialData.Year).
 		FirstOrCreate(&financialData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store financial data"})
 		return
@@ -102,12 +93,7 @@ func (h *FlockFinancialHandler) AddOrUpdateFinancialData(c *gin.Context) {
 
 // UpdateFinancialData updates existing financial data
 func (h *FlockFinancialHandler) UpdateFinancialData(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	userID := userIDVal.(uint)
+	farmID, _ := farmContext(c)
 
 	var updatedData models.FlocksFinancialData
 	if err := c.ShouldBindJSON(&updatedData); err != nil {
@@ -116,13 +102,15 @@ func (h *FlockFinancialHandler) UpdateFinancialData(c *gin.Context) {
 	}
 
 	var existingData models.FlocksFinancialData
-	if err := db.DB.Where("flock_id = ? AND user_id = ? AND month = ? AND year = ?",
-		updatedData.FlockID, userID, updatedData.Month, updatedData.Year).
+	if err := db.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?",
+		updatedData.FlockID, farmID, updatedData.Month, updatedData.Year).
 		First(&existingData).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Financial data not found"})
 		return
 	}
 
+	// The body can't move the record to another record or farm
+	updatedData.ID, updatedData.FarmID = 0, 0
 	if err := db.DB.Model(&existingData).Updates(updatedData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update financial data"})
 		return
@@ -133,12 +121,7 @@ func (h *FlockFinancialHandler) UpdateFinancialData(c *gin.Context) {
 
 // DeleteFinancialData removes financial data for a flock
 func (h *FlockFinancialHandler) DeleteFinancialData(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	userID := userIDVal.(uint)
+	farmID, _ := farmContext(c)
 
 	flockID, err := strconv.Atoi(c.Param("flockID"))
 	if err != nil {
@@ -146,7 +129,7 @@ func (h *FlockFinancialHandler) DeleteFinancialData(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).Delete(&models.FlocksFinancialData{}).Error; err != nil {
+	if err := db.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).Delete(&models.FlocksFinancialData{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete financial data"})
 		return
 	}

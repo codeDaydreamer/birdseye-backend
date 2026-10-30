@@ -8,7 +8,7 @@ import (
 type Notification struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"index" json:"user_id"` // Associate notification with a specific user
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	FarmID uint `json:"farm_id" gorm:"index"` // farm the notification is about
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
 	Type      string    `json:"type"`     // e.g., "info", "success", "error"

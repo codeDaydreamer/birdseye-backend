@@ -18,26 +18,26 @@ func NewSalesService(db *gorm.DB) *SalesService {
 	return &SalesService{DB: db}
 }
 
-// GetSalesByUser retrieves sales records for a specific user
-func (s *SalesService) GetSalesByUser(userID uint) ([]models.Sale, error) {
+// GetSalesByFarm retrieves sales records for a specific farm
+func (s *SalesService) GetSalesByFarm(farmID uint) ([]models.Sale, error) {
 	var sales []models.Sale
-	err := s.DB.Where("user_id = ?", userID).Find(&sales).Error
+	err := s.DB.Where("farm_id = ?", farmID).Find(&sales).Error
 	return sales, err
 }
 
-// GetSalesByFlock retrieves sales related to a specific flock for an authenticated user,
+// GetSalesByFlock retrieves sales related to a specific flock within a farm,
 // including timestamps for dynamic filtering.
-func (s *SalesService) GetSalesByFlock(flockID uint, userID uint) ([]models.Sale, error) {
+func (s *SalesService) GetSalesByFlock(flockID uint, farmID uint) ([]models.Sale, error) {
     var sales []models.Sale
-    err := s.DB.Where("flock_id = ? AND user_id = ?", flockID, userID).
+    err := s.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).
         Order("created_at DESC").Find(&sales).Error
     return sales, err
 }
 
 // GetSalesByFlockAndPeriod retrieves sales for a flock within a given time range
-func (s *SalesService) GetSalesByFlockAndPeriod(flockID uint, userID uint, start, end time.Time) ([]models.Sale, error) {
+func (s *SalesService) GetSalesByFlockAndPeriod(flockID uint, farmID uint, start, end time.Time) ([]models.Sale, error) {
     var sales []models.Sale
-    err := s.DB.Where("flock_id = ? AND user_id = ? AND created_at BETWEEN ? AND ?", flockID, userID, start, end).
+    err := s.DB.Where("flock_id = ? AND farm_id = ? AND created_at BETWEEN ? AND ?", flockID, farmID, start, end).
         Order("created_at DESC").Find(&sales).Error
     return sales, err
 }
@@ -50,11 +50,11 @@ func (s *SalesService) AddSale(sale *models.Sale) error {
 	}
 
 	// Send WebSocket update
-	broadcast.SendSaleUpdate(sale.UserID, "sale_added", *sale)
+	broadcast.SendSaleUpdate(sale.FarmID, "sale_added", *sale)
 
 	// Send Notification
-	broadcast.SendNotification(
-		sale.UserID,
+	broadcast.SendFarmNotification(
+		sale.FarmID,
 		"New Sale Added",
 		"Your sale record has been successfully added.",
 		"/sales",
@@ -70,11 +70,11 @@ func (s *SalesService) UpdateSale(sale *models.Sale) error {
 	}
 
 	// Send WebSocket update
-	broadcast.SendSaleUpdate(sale.UserID, "sale_updated", *sale)
+	broadcast.SendSaleUpdate(sale.FarmID, "sale_updated", *sale)
 
 	// Send Notification
-	broadcast.SendNotification(
-		sale.UserID,
+	broadcast.SendFarmNotification(
+		sale.FarmID,
 		"Sale Updated",
 		"Your sale record has been successfully updated.",
 		"/sales",
@@ -84,9 +84,9 @@ func (s *SalesService) UpdateSale(sale *models.Sale) error {
 }
 
 // DeleteSale removes a sale record by ID, sends a WebSocket update, and notifies the user
-func (s *SalesService) DeleteSale(saleID uint, userID uint) error {
+func (s *SalesService) DeleteSale(saleID uint, farmID uint) error {
 	var sale models.Sale
-	if err := s.DB.Where("id = ? AND user_id = ?", saleID, userID).First(&sale).Error; err != nil {
+	if err := s.DB.Where("id = ? AND farm_id = ?", saleID, farmID).First(&sale).Error; err != nil {
 		return errors.New("sale not found")
 	}
 
@@ -95,11 +95,11 @@ func (s *SalesService) DeleteSale(saleID uint, userID uint) error {
 	}
 
 	// Send WebSocket update
-	broadcast.SendSaleUpdate(userID, "sale_deleted", saleID)
+	broadcast.SendSaleUpdate(farmID, "sale_deleted", saleID)
 
 	// Send Notification
-	broadcast.SendNotification(
-		userID,
+	broadcast.SendFarmNotification(
+		farmID,
 		"Sale Deleted",
 		"A sale record has been removed from your account.",
 		"/sales",

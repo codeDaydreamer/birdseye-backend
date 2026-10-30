@@ -186,7 +186,13 @@ func AdminCreateUser(user *models.User) (*models.User, error) {
 		user.Role = "user"
 	}
 
-	if err := db.DB.Create(user).Error; err != nil {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		_, err := models.CreateFarmForUser(tx, user)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 

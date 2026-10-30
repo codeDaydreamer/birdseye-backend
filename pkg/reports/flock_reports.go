@@ -36,7 +36,7 @@ type FlockReportData struct {
 	ChartImagePath string
 	AvgMortalityRate float64
 }
-func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time) (string, error) {
+func GenerateFlockReport(db *gorm.DB, farmID, userID uint, startDate, endDate time.Time) (string, error) {
 	log.Println("Starting flock report generation...")
 
 	var totalBirds int
@@ -52,7 +52,7 @@ func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 
 	log.Printf("Fetching flocks for user %d", userID)
 	var flocks []models.Flock
-	if err := db.Where("user_id = ?", userID).Find(&flocks).Error; err != nil {
+	if err := db.Where("farm_id = ?", farmID).Find(&flocks).Error; err != nil {
 		log.Println("Error fetching flocks:", err)
 		return "", fmt.Errorf("failed to fetch flocks: %w", err)
 	}
@@ -146,6 +146,7 @@ func GenerateFlockReport(db *gorm.DB, userID uint, startDate, endDate time.Time)
 		ReportType:  "Flock",
 		GeneratedAt: time.Now(),
 		UserID:      userID,
+		FarmID:      farmID,
 		Name:        reportFilename,
 		Content:     relativePath,
 		StartDate:   startDate,

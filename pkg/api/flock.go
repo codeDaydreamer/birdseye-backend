@@ -9,6 +9,7 @@ import (
 	"strconv"
     "time"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 )
 
 // FlockHandler handles flock-related requests
@@ -24,7 +25,7 @@ func SetupFlockRoutes(r *gin.Engine) {
     flockService := services.NewFlockService(db.DB, eggService, salesService, expenseService) // ✅ Pass ExpenseService
     handler := &FlockHandler{Service: flockService}
 
-    flockRoutes := r.Group("/flocks").Use(middlewares.AuthMiddleware())
+    flockRoutes := r.Group("/flocks").Use(middlewares.FarmAuth())
     {
         flockRoutes.GET("/", handler.GetFlocks)
         flockRoutes.GET("/:id", handler.GetFlock)
@@ -35,51 +36,28 @@ func SetupFlockRoutes(r *gin.Engine) {
 }
 
 func (h *FlockHandler) GetFlocks(c *gin.Context) {
-    userID, exists := c.Get("user_id") // Get user ID from context
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
+    farmID, _ := farmContext(c)
 
-    // Fetch user data from the database
-    user, err := models.GetUserByID(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-        return
-    }
-
-    // Use the user ID to fetch the flocks for the user
-    flocks, err := h.Service.GetFlocksByUser(user.ID)
+    flocks, err := h.Service.GetFlocksByFarm(farmID)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve flocks"})
         return
     }
 
+    // Define date range for financial calculations (current month)
+    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+    end := start.AddDate(0, 1, -1) // Last day of the month
+
     // Recalculate and update metrics before returning the data
     for i := range flocks {
-        // Define date range for financial calculations (current month)
-start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
-end := start.AddDate(0, 1, -1) // Last day of the month
-
-h.Service.CalculateFlockMetrics(&flocks[i], user.ID, start, end) // ✅ Now includes date range
-
+        h.Service.CalculateFlockMetrics(&flocks[i], start, end)
     }
 
     c.JSON(http.StatusOK, flocks)
 }
-func (h *FlockHandler) GetFlock(c *gin.Context) {
-    userID, exists := c.Get("user_id") // Get user ID from context
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
 
-    // Fetch user data from the database
-    user, err := models.GetUserByID(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-        return
-    }
+func (h *FlockHandler) GetFlock(c *gin.Context) {
+    farmID, _ := farmContext(c)
 
     id, err := strconv.Atoi(c.Param("id"))
     if err != nil {
@@ -87,7 +65,7 @@ func (h *FlockHandler) GetFlock(c *gin.Context) {
         return
     }
 
-    flock, err := h.Service.GetFlockByID(uint(id), user.ID)
+    flock, err := h.Service.GetFlockByID(uint(id), farmID)
     if err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "Flock not found"})
         return
@@ -98,25 +76,14 @@ func (h *FlockHandler) GetFlock(c *gin.Context) {
     end := start.AddDate(0, 1, -1) // Last day of the month
 
     // Recalculate and update metrics before returning the data
-    h.Service.CalculateFlockMetrics(flock, user.ID, start, end)
+    h.Service.CalculateFlockMetrics(flock, start, end)
 
     c.JSON(http.StatusOK, flock)
 }
 
-// AddFlock adds a new flock
+// AddFlock adds a new flock to the farm
 func (h *FlockHandler) AddFlock(c *gin.Context) {
-    userID, exists := c.Get("user_id") // Get user ID from context
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
-
-    // Fetch user data from the database
-    user, err := models.GetUserByID(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-        return
-    }
+    farmID, _ := farmContext(c)
 
     var flock models.Flock
     if err := c.ShouldBindJSON(&flock); err != nil {
@@ -124,9 +91,10 @@ func (h *FlockHandler) AddFlock(c *gin.Context) {
         return
     }
 
-    flock.UserID = user.ID // Use user.ID as uint
+    flock.ID = 0
+    flock.FarmID = farmID
 
-    if err := db.DB.Create(&flock).Error; err != nil {
+    if err := db.DB.Omit(clause.Associations).Create(&flock).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create flock"})
         return
     }
@@ -135,18 +103,7 @@ func (h *FlockHandler) AddFlock(c *gin.Context) {
 }
 
 func (h *FlockHandler) UpdateFlock(c *gin.Context) {
-    userID, exists := c.Get("user_id") // Get user ID from context
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
-
-    // Fetch user data from the database
-    user, err := models.GetUserByID(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-        return
-    }
+    farmID, _ := farmContext(c)
 
     id, err := strconv.Atoi(c.Param("id"))
     if err != nil {
@@ -154,17 +111,21 @@ func (h *FlockHandler) UpdateFlock(c *gin.Context) {
         return
     }
 
-    flock, err := h.Service.GetFlockByID(uint(id), user.ID)
+    flock, err := h.Service.GetFlockByID(uint(id), farmID)
     if err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "Flock not found"})
         return
     }
+    farm := flock.FarmID
 
     // Bind JSON data to the existing flock
     if err := c.ShouldBindJSON(&flock); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
+
+    // The body can't move the flock to another record or farm
+    flock.ID, flock.FarmID = uint(id), farm
 
     if err := h.Service.UpdateFlock(flock); err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update flock"})
@@ -174,20 +135,9 @@ func (h *FlockHandler) UpdateFlock(c *gin.Context) {
     c.JSON(http.StatusOK, flock)
 }
 
-// DeleteFlock deletes a flock for the authenticated user
+// DeleteFlock deletes one of the farm's flocks
 func (h *FlockHandler) DeleteFlock(c *gin.Context) {
-    userID, exists := c.Get("user_id") // Get user ID from context
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
-
-    // Fetch user data from the database
-    user, err := models.GetUserByID(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
-        return
-    }
+    farmID, _ := farmContext(c)
 
     id, err := strconv.Atoi(c.Param("id"))
     if err != nil {
@@ -195,7 +145,14 @@ func (h *FlockHandler) DeleteFlock(c *gin.Context) {
         return
     }
 
-    if err := db.DB.Where("id = ? AND user_id = ?", id, user.ID).Delete(&models.Flock{}).Error; err != nil {
+    // Load it first so the delete hook knows which farm to notify
+    flock, err := h.Service.GetFlockByID(uint(id), farmID)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Flock not found"})
+        return
+    }
+
+    if err := db.DB.Delete(flock).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete flock"})
         return
     }

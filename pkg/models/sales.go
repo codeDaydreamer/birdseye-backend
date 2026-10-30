@@ -9,8 +9,7 @@ import (
 
 type Sale struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID      uint      `json:"user_id" gorm:"index;not null"`
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	FarmID uint `json:"farm_id" gorm:"index;not null"` // tenant
 	CreatedByUserID uint `json:"created_by_user_id" gorm:"index"` // staff member who logged this record
 	FlockID     uint      `json:"flock_id" gorm:"index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` 
 	RefNo       string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
@@ -30,16 +29,16 @@ type Sale struct {
 	Flock Flock `json:"flock" gorm:"foreignKey:FlockID"` 
 }
 
-// GenerateRefNo generates a unique reference number for sales
-func GenerateRefNo(userID uint) string {
+// GenerateRefNo generates a unique reference number for a farm's sales
+func GenerateRefNo(farmID uint) string {
 	timestamp := time.Now().Format("20060102150405") // YYYYMMDDHHMMSS
 	randomNum := fmt.Sprintf("%04d", time.Now().Nanosecond()%10000) // 4-digit random number
-	return fmt.Sprintf("REF-%d-%s-%s", userID, timestamp, randomNum)
+	return fmt.Sprintf("REF-%d-%s-%s", farmID, timestamp, randomNum)
 }
 
 // Hook to generate RefNo before creating a sale
 func (s *Sale) BeforeCreate(tx *gorm.DB) (err error) {
-	s.RefNo = GenerateRefNo(s.UserID)
+	s.RefNo = GenerateRefNo(s.FarmID)
 	if s.Status == "" {
 		s.Status = "pending..." // Default status
 	}

@@ -17,10 +17,10 @@ func NewEggAdjustmentService(db *gorm.DB) *EggAdjustmentService {
 	return &EggAdjustmentService{DB: db}
 }
 
-// GetAdjustmentsByUser retrieves all egg adjustments for a user
-func (s *EggAdjustmentService) GetAdjustmentsByUser(userID uint) ([]models.EggAdjustment, error) {
+// GetAdjustmentsByFarm retrieves all egg adjustments for a farm
+func (s *EggAdjustmentService) GetAdjustmentsByFarm(farmID uint) ([]models.EggAdjustment, error) {
 	var adjustments []models.EggAdjustment
-	err := s.DB.Where("user_id = ?", userID).Find(&adjustments).Error
+	err := s.DB.Where("farm_id = ?", farmID).Find(&adjustments).Error
 	return adjustments, err
 }
 
@@ -31,11 +31,11 @@ func (s *EggAdjustmentService) AddAdjustment(adj *models.EggAdjustment) error {
 	}
 
 	// Broadcast update via WebSocket
-	broadcast.SendEggAdjustmentUpdate(adj.UserID, "added", *adj)
+	broadcast.SendEggAdjustmentUpdate(adj.FarmID, "added", *adj)
 
 	// Optional: Send notification
 	notificationMessage := fmt.Sprintf("New egg adjustment: %s eggs (%d).", adj.Reason, adj.Quantity)
-	broadcast.SendNotification(adj.UserID, "Egg Adjustment Added", notificationMessage, "/dashboard")
+	broadcast.SendFarmNotification(adj.FarmID, "Egg Adjustment Added", notificationMessage, "/dashboard")
 
 	return nil
 }
@@ -46,14 +46,14 @@ func (s *EggAdjustmentService) UpdateAdjustment(adj *models.EggAdjustment) error
 		return err
 	}
 
-	broadcast.SendEggAdjustmentUpdate(adj.UserID, "updated", *adj)
+	broadcast.SendEggAdjustmentUpdate(adj.FarmID, "updated", *adj)
 	return nil
 }
 
 // DeleteAdjustment deletes an adjustment
-func (s *EggAdjustmentService) DeleteAdjustment(id, userID uint) error {
+func (s *EggAdjustmentService) DeleteAdjustment(id, farmID uint) error {
 	var adj models.EggAdjustment
-	if err := s.DB.Where("id = ? AND user_id = ?", id, userID).First(&adj).Error; err != nil {
+	if err := s.DB.Where("id = ? AND farm_id = ?", id, farmID).First(&adj).Error; err != nil {
 		return errors.New("adjustment not found")
 	}
 
@@ -61,6 +61,6 @@ func (s *EggAdjustmentService) DeleteAdjustment(id, userID uint) error {
 		return err
 	}
 
-	broadcast.SendEggAdjustmentUpdate(userID, "deleted", adj.ID)
+	broadcast.SendEggAdjustmentUpdate(farmID, "deleted", adj.ID)
 	return nil
 }
