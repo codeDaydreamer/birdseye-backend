@@ -202,3 +202,16 @@ func SendFarmNotification(farmID uint, title, message, url string) {
 		go PushToFarm(farmID, title, message, url)
 	}
 }
+
+// DisconnectFarmMember closes a user's live connections to a farm, e.g. after they're removed from
+// its staff, so they stop receiving its updates straight away
+func DisconnectFarmMember(farmID, userID uint) {
+	mutex.Lock()
+	for conn, cl := range clients {
+		if cl.FarmID == farmID && cl.UserID == userID {
+			conn.Close()
+			delete(clients, conn)
+		}
+	}
+	mutex.Unlock()
+}

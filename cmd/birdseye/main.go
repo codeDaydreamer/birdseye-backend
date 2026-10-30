@@ -282,6 +282,7 @@ func main() {
 	api.RegisterPaymentRoutes(router)
 	api.RegisterWebhookRoutes(router)
 	api.SetupEggAdjustmentRoutes(router)
+	api.SetupStaffRoutes(router)
 
 
 	// WebSocket routes

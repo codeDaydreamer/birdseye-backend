@@ -241,3 +241,40 @@ func AdminResetUserPassword(userIDStr, newPassword string) error {
 
 	return nil
 }
+
+// AdminFarm is a farm as the admin console lists it
+type AdminFarm struct {
+	ID            uint      `json:"id"`
+	Name          string    `json:"name"`
+	Status        string    `json:"status"`
+	OwnerUserID   uint      `json:"owner_user_id"`
+	OwnerUsername string    `json:"owner_username"`
+	OwnerEmail    string    `json:"owner_email"`
+	StaffCount    int64     `json:"staff_count"`
+	CreatedAt     time.Time `json:"created_at"`
+
+	*FarmBillingStatus
+}
+
+// GetAllFarms lists every farm with its owner, active staff count and billing status
+func GetAllFarms() ([]AdminFarm, error) {
+	var farms []AdminFarm
+	if err := db.DB.Table("farms").
+		Select(`farms.id, farms.name, farms.status, farms.owner_user_id, farms.created_at,
+			users.username AS owner_username, users.email AS owner_email,
+			(SELECT COUNT(*) FROM farm_members fm WHERE fm.farm_id = farms.id AND fm.status = 'active') AS staff_count`).
+		Joins("LEFT JOIN users ON users.id = farms.owner_user_id").
+		Order("farms.created_at DESC").
+		Scan(&farms).Error; err != nil {
+		return nil, err
+	}
+
+	for i := range farms {
+		status, err := GetFarmBillingStatus(farms[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		farms[i].FarmBillingStatus = status
+	}
+	return farms, nil
+}

@@ -58,16 +58,7 @@ func userJSON(user *models.User) gin.H {
 func userPayload(c *gin.Context, user *models.User) gin.H {
 	out := userJSON(user)
 
-	var farms []struct {
-		FarmID uint   `json:"farm_id"`
-		Name   string `json:"name"`
-		Role   string `json:"role"`
-	}
-	db.DB.Table("farm_members").
-		Select("farm_members.farm_id, farms.name, farm_members.role").
-		Joins("JOIN farms ON farms.id = farm_members.farm_id").
-		Where("farm_members.user_id = ? AND farm_members.status = ?", user.ID, "active").
-		Scan(&farms)
+	farms, _ := services.GetUserFarms(user.ID)
 	out["farms"] = farms
 
 	member, err := middlewares.ResolveFarmMember(user.ID, c.GetHeader("X-Farm-ID"))

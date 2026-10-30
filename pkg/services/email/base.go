@@ -34,7 +34,10 @@ func SendEmail(to, subject, htmlBody string) error {
 		sender = defaultSender
 	}
 
-	url := "https://api.resend.com/emails"
+	url := os.Getenv("RESEND_API_URL") // overridable for local testing
+	if url == "" {
+		url = "https://api.resend.com/emails"
+	}
 
 	emailReq := resendRequest{
 		From:    sender,

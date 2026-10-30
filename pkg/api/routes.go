@@ -53,6 +53,7 @@ func SetupRoutes(router *gin.Engine) {
 	admin.Use(middlewares.AdminAuthMiddleware())
 	admin.GET("/me", handleGetAdminProfile)
 	admin.GET("/users", handleAdminGetAllUsers)
+	admin.GET("/farms", handleAdminGetAllFarms)
 	admin.GET("/user/:id", handleAdminGetUserByID)
 	admin.PUT("/user/:id", handleAdminUpdateUser)
 	admin.DELETE("/user/:id", handleAdminDeleteUser)
@@ -361,7 +362,6 @@ func handleGoogleCallback(c *gin.Context) {
 	}
 
 	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, token)
-	log.Println("Redirecting to frontend with token:", redirectURL)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
@@ -517,6 +517,15 @@ func handleAdminGetAllUsers(c *gin.Context) {
 		payloads = append(payloads, adminUserPayload(&users[i]))
 	}
 	c.JSON(http.StatusOK, gin.H{"users": payloads})
+}
+
+func handleAdminGetAllFarms(c *gin.Context) {
+	farms, err := services.GetAllFarms()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get farms"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"farms": farms})
 }
 
 func handleAdminGetUserByID(c *gin.Context) {
