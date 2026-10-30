@@ -251,6 +251,8 @@ type AdminFarm struct {
 	OwnerUsername string    `json:"owner_username"`
 	OwnerEmail    string    `json:"owner_email"`
 	StaffCount    int64     `json:"staff_count"`
+	PlanID        *uint     `json:"plan_id"`
+	PlanName      string    `json:"plan_name"`
 	CreatedAt     time.Time `json:"created_at"`
 
 	*FarmBillingStatus
@@ -262,8 +264,10 @@ func GetAllFarms() ([]AdminFarm, error) {
 	if err := db.DB.Table("farms").
 		Select(`farms.id, farms.name, farms.status, farms.owner_user_id, farms.created_at,
 			users.username AS owner_username, users.email AS owner_email,
+			farms.plan_id, COALESCE(plans.name, '') AS plan_name,
 			(SELECT COUNT(*) FROM farm_members fm WHERE fm.farm_id = farms.id AND fm.status = 'active') AS staff_count`).
 		Joins("LEFT JOIN users ON users.id = farms.owner_user_id").
+		Joins("LEFT JOIN plans ON plans.id = farms.plan_id").
 		Order("farms.created_at DESC").
 		Scan(&farms).Error; err != nil {
 		return nil, err
