@@ -26,13 +26,13 @@ func farmBillingFields(farmID uint) gin.H {
 	var billingInfo models.BillingInfo
 	db.DB.Where("farm_id = ?", farmID).Limit(1).Find(&billingInfo)
 
-	price, err := services.SubscriptionPrice(farmID)
-	if err != nil {
-		price = services.StandardPrice
-	}
+	// The farm's plan (null if it has none, meaning nothing is limited) so the client can show
+	// what's included and hide features the plan leaves out
+	plan, _ := services.GetFarmPlan(farmID)
 
 	return gin.H{
-		"subscription_price":         price,
+		"plan":                       plan,
+		"billing_period":             status.BillingPeriod,
 		"payment_status":             status.PaymentStatus,
 		"is_trial_active":            status.IsTrialActive,
 		"trial_ends_at":              status.TrialEndsAt,

@@ -49,9 +49,6 @@ type User struct {
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
 
-	// Beta testers get a discounted subscription price (see services.SubscriptionPrice)
-	IsBetaTester   bool         `gorm:"default:true" json:"is_beta_tester"`
-	DiscountedPrice int         `gorm:"default:1500" json:"discounted_price"` // 2500 by default, 1500 for beta testers
 
 	OTP            string       `gorm:"-" json:"-"`
 	OTPHashed      string       `json:"-"`
@@ -60,14 +57,6 @@ type User struct {
 }
 
 
-// SetBetaPricing sets the discounted price for beta testers
-func (u *User) SetBetaPricing() {
-	if u.IsBetaTester {
-		u.DiscountedPrice = 1500
-	} else {
-		u.DiscountedPrice = 2500
-	}
-}
 
 
 // Admin represents an administrator user

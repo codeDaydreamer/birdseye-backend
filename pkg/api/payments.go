@@ -7,6 +7,7 @@ import (
 	"birdseye-backend/pkg/services"
 	"birdseye-backend/pkg/services/email"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,16 +30,67 @@ func RegisterPaymentRoutes(r *gin.Engine) {
 		middlewares.RequireFarmRole(models.FarmRoleOwner, models.FarmRoleManager),
 	)
 	{
+		payments.POST("/quote", handler.QuotePayment)
 		payments.POST("/initiate", handler.InitiatePayment)
 		payments.GET("", handler.ListPayments)
 	}
 }
 
-// PaymentRequest is the incoming payload from frontend. Any amount it sends is ignored: the price
-// comes from services.SubscriptionPrice.
+// PaymentRequest is the incoming payload from frontend. The amount is never taken from it: it's
+// worked out from the plan, billing period and promo code (services.QuotePlan).
 type PaymentRequest struct {
-	Phone     string `json:"PhoneNumber"`
-	Reference string `json:"reference"`
+	Phone         string `json:"PhoneNumber"`
+	Reference     string `json:"reference"`
+	PlanID        uint   `json:"plan_id"`
+	BillingPeriod string `json:"billing_period"`
+	PromoCode     string `json:"promo_code"`
+}
+
+// quoteForRequest prices what the request is for; with no plan given it renews the farm's
+// current plan and billing period
+func quoteForRequest(farmID uint, req PaymentRequest) (*services.Quote, error) {
+	if req.PlanID == 0 || req.BillingPeriod == "" {
+		var farm models.Farm
+		if err := db.DB.Omit("Subscription", "BillingInfo").First(&farm, farmID).Error; err != nil {
+			return nil, err
+		}
+		if req.PlanID == 0 {
+			if farm.PlanID == nil {
+				return nil, services.ErrPlanNotFound
+			}
+			req.PlanID = *farm.PlanID
+		}
+		if req.BillingPeriod == "" {
+			req.BillingPeriod = farm.BillingPeriod
+		}
+	}
+	return services.QuotePlan(req.PlanID, req.BillingPeriod, req.PromoCode)
+}
+
+// respondQuoteError answers pricing errors (unknown plan, period not offered, bad promo) with 400
+func respondQuoteError(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrPlanNotFound) || errors.Is(err, services.ErrPeriodNotOffered) || errors.Is(err, services.ErrPromoInvalid) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	logrus.Errorf("Failed to price payment: %v", err)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not determine price"})
+}
+
+// QuotePayment shows what a plan + billing period (+ promo code) will cost before paying
+func (h *PaymentHandler) QuotePayment(c *gin.Context) {
+	farmID, _ := farmContext(c)
+	var req PaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	quote, err := quoteForRequest(farmID, req)
+	if err != nil {
+		respondQuoteError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, quote)
 }
 
 // dynapayWebhookURL is where Dynapay posts the payment result. Dynapay doesn't sign webhooks, so the
@@ -56,12 +108,13 @@ func dynapayWebhookURL() (string, error) {
 	return base + sep + "token=" + url.QueryEscape(secret), nil
 }
 
-// InitiatePayment sends an M-Pesa STK push for the farm's subscription via Dynapay
+// InitiatePayment pays for a plan: an M-Pesa STK push via Dynapay, or, when a promo code brings
+// the price to zero, activates the plan straight away
 func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 	farmID, userID := farmContext(c)
 
 	var req PaymentRequest
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Phone) == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
@@ -80,10 +133,44 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 		return
 	}
 
-	amount, err := services.SubscriptionPrice(farmID)
+	quote, err := quoteForRequest(farmID, req)
 	if err != nil {
-		logrus.Errorf("Failed to work out subscription price for farm %d: %v", farmID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not determine price"})
+		respondQuoteError(c, err)
+		return
+	}
+
+	payment := models.Payment{
+		UserID:         userID,
+		FarmID:         farmID,
+		Amount:         quote.Amount,
+		PhoneNumber:    req.Phone,
+		Reference:      req.Reference,
+		PlanID:         &quote.PlanID,
+		BillingPeriod:  quote.BillingPeriod,
+		ListPrice:      quote.ListPrice,
+		PromoCodeID:    quote.PromoCodeID,
+		DiscountAmount: quote.DiscountAmount,
+	}
+
+	// Fully discounted: nothing to collect, so activate now
+	if quote.Amount <= 0 {
+		payment.Status = "success"
+		payment.Gateway = "promo"
+		if err := db.DB.Create(&payment).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record payment"})
+			return
+		}
+		if err := services.ApplySuccessfulPayment(&payment); err != nil {
+			logrus.Errorf("Failed to apply free payment for farm %d: %v", farmID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate plan"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Plan activated", "reference": req.Reference, "amount": 0, "status": "success", "quote": quote})
+		return
+	}
+
+	if strings.TrimSpace(req.Phone) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Phone number is required"})
 		return
 	}
 
@@ -94,7 +181,7 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 		return
 	}
 
-	result, err := services.Dynapay.SendSTKPush(req.Phone, amount, req.Reference, webhook)
+	result, err := services.Dynapay.SendSTKPush(req.Phone, quote.Amount, req.Reference, webhook)
 	if err != nil {
 		logrus.Errorf("Dynapay STK Push failed: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to initiate payment", "details": err.Error()})
@@ -102,18 +189,11 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 	}
 
 	// Record the payment now, so the webhook can only complete payments we started
-	payment := models.Payment{
-		UserID:            userID,
-		FarmID:            farmID,
-		Amount:            amount,
-		PhoneNumber:       req.Phone,
-		Status:            "initiated",
-		Reference:         req.Reference,
-		PaymentID:         &result.PaymentID,
-		MerchantRequestID: result.MerchantRequestID,
-		CheckoutRequestID: result.CheckoutRequestID,
-		Gateway:           "mpesa",
-	}
+	payment.Status = "initiated"
+	payment.Gateway = "mpesa"
+	payment.PaymentID = &result.PaymentID
+	payment.MerchantRequestID = result.MerchantRequestID
+	payment.CheckoutRequestID = result.CheckoutRequestID
 	if err := db.DB.Create(&payment).Error; err != nil {
 		logrus.Errorf("Failed to record initiated payment for farm %d: %v", farmID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record payment"})
@@ -127,7 +207,8 @@ func (h *PaymentHandler) InitiatePayment(c *gin.Context) {
 		"checkout_request_id": result.CheckoutRequestID,
 		"merchant_request_id": result.MerchantRequestID,
 		"reference":           req.Reference,
-		"amount":              amount,
+		"amount":              quote.Amount,
+		"quote":               quote,
 	})
 }
 
@@ -207,8 +288,8 @@ func HandleDynapayWebhook(c *gin.Context) {
 	db.DB.First(&payer, payment.UserID)
 
 	if payment.Status == "success" {
-		if _, err := services.GetFarmBillingStatus(payment.FarmID); err != nil {
-			logrus.Errorf("❌ Failed to refresh billing status for farm %d: %v", payment.FarmID, err)
+		if err := services.ApplySuccessfulPayment(&payment); err != nil {
+			logrus.Errorf("❌ Failed to apply payment %s to farm %d: %v", payment.ID, payment.FarmID, err)
 		}
 		logrus.Infof("✅ Farm %d paid via payment %s", payment.FarmID, payment.ID)
 

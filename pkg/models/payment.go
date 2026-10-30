@@ -52,7 +52,14 @@ type Payment struct {
 	ID                 string      `gorm:"primaryKey;type:varchar(36)" json:"id"`
 	UserID             uint        `gorm:"index;not null" json:"user_id"` // who paid
 	FarmID             uint        `gorm:"index;not null" json:"farm_id"` // farm the payment is for
-	Amount             float64     `gorm:"not null" json:"amount"`
+	Amount             float64     `gorm:"not null" json:"amount"` // what was charged, after any discount
+
+	// What the payment buys
+	PlanID         *uint   `json:"plan_id"`
+	BillingPeriod  string  `gorm:"type:varchar(10)" json:"billing_period"`
+	ListPrice      float64 `json:"list_price"`
+	PromoCodeID    *uint   `json:"promo_code_id"`
+	DiscountAmount float64 `json:"discount_amount"`
 	PhoneNumber        string      `gorm:"type:varchar(20);not null" json:"phone_number"`
 	Status             string      `gorm:"default:'initiated'" json:"status"`
 

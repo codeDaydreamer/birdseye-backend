@@ -7,9 +7,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// FarmTrialDays is how long a new farm can use Birdseye before it must pay
-const FarmTrialDays = 14
-
 // Farm roles
 const (
 	FarmRoleOwner   = "owner"
@@ -25,6 +22,11 @@ type Farm struct {
 	Status        string    `gorm:"default:active" json:"status"`           // active | suspended
 	PaymentStatus string    `gorm:"default:'trial'" json:"payment_status"` // trial | paid | unpaid (see services.GetFarmBillingStatus)
 	TrialEndsAt   time.Time `json:"trial_ends_at"`
+
+	// Current plan and what's been paid for; a successful payment moves PaidUntil forward
+	PlanID        *uint      `json:"plan_id"`
+	BillingPeriod string     `gorm:"type:varchar(10);default:monthly" json:"billing_period"` // monthly | yearly
+	PaidUntil     *time.Time `json:"paid_until"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
@@ -59,11 +61,20 @@ type FarmInvite struct {
 
 // CreateFarmForUser creates a new Farm owned by the user, plus their owner FarmMember row
 func CreateFarmForUser(tx *gorm.DB, user *User) (*Farm, error) {
+	// New farms start on the default plan, with the trial the admin has configured
+	trialEnds := time.Now()
+	if settings, err := GetPlatformSettings(); err == nil && settings.TrialEnabled {
+		trialEnds = trialEnds.AddDate(0, 0, settings.TrialDays)
+	}
 	farm := Farm{
 		Name:          fmt.Sprintf("%s's Farm", user.Username),
 		OwnerUserID:   user.ID,
 		PaymentStatus: "trial",
-		TrialEndsAt:   time.Now().AddDate(0, 0, FarmTrialDays),
+		TrialEndsAt:   trialEnds,
+		BillingPeriod: BillingMonthly,
+	}
+	if plan := GetDefaultPlan(tx); plan != nil {
+		farm.PlanID = &plan.ID
 	}
 	if err := tx.Omit("Subscription", "BillingInfo").Create(&farm).Error; err != nil {
 		return nil, err

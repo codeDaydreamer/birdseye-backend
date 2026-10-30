@@ -94,6 +94,19 @@ func (h *FlockHandler) AddFlock(c *gin.Context) {
     flock.ID = 0
     flock.FarmID = farmID
 
+    if err := services.CheckFlockLimit(farmID); err != nil {
+        if !respondPlanLimit(c, err) {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check plan limits"})
+        }
+        return
+    }
+    if err := services.CheckBirdLimit(farmID, flock.BirdCount, 0); err != nil {
+        if !respondPlanLimit(c, err) {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check plan limits"})
+        }
+        return
+    }
+
     if err := db.DB.Omit(clause.Associations).Create(&flock).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create flock"})
         return
@@ -126,6 +139,13 @@ func (h *FlockHandler) UpdateFlock(c *gin.Context) {
 
     // The body can't move the flock to another record or farm
     flock.ID, flock.FarmID = uint(id), farm
+
+    if err := services.CheckBirdLimit(farmID, flock.BirdCount, flock.ID); err != nil {
+        if !respondPlanLimit(c, err) {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check plan limits"})
+        }
+        return
+    }
 
     if err := h.Service.UpdateFlock(flock); err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update flock"})

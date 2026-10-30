@@ -18,3 +18,8 @@ func flockInFarm(flockID, farmID uint) bool {
 	db.DB.Model(&models.Flock{}).Where("id = ? AND farm_id = ?", flockID, farmID).Count(&count)
 	return count > 0
 }
+
+// dbFirst loads a record by primary key
+func dbFirst(dest interface{}, id uint) error {
+	return db.DB.First(dest, id).Error
+}

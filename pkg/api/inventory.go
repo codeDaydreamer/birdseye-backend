@@ -22,7 +22,7 @@ type InventoryHandler struct {
 func SetupInventoryRoutes(r *gin.Engine) {
 	handler := &InventoryHandler{Service: services.NewInventoryService(db.DB)}
 
-	inventoryRoutes := r.Group("/inventory").Use(middlewares.FarmAuth())
+	inventoryRoutes := r.Group("/inventory").Use(middlewares.FarmAuth(), requireFeature("inventory"))
 	{
 		inventoryRoutes.GET("/", handler.GetInventory)
 		inventoryRoutes.POST("/", handler.AddInventoryItem)

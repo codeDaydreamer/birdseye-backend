@@ -19,7 +19,7 @@ func SetupVaccinationRoutes(r *gin.Engine) {
 	handler := &VaccinationHandler{}
 
 	// Routes for vaccinations tied to one of the farm's flocks
-	vaccinationRoutes := r.Group("/flocks/:id/vaccinations").Use(middlewares.FarmAuth(), requireFlockInFarm())
+	vaccinationRoutes := r.Group("/flocks/:id/vaccinations").Use(middlewares.FarmAuth(), requireFeature("vaccinations"), requireFlockInFarm())
 	{
 		vaccinationRoutes.GET("/", handler.GetVaccinations)
 		vaccinationRoutes.POST("/", handler.AddVaccination)
@@ -28,7 +28,7 @@ func SetupVaccinationRoutes(r *gin.Engine) {
 	}
 
 	// All vaccinations across the farm's flocks
-	farmVaccinationRoutes := r.Group("/vaccinations").Use(middlewares.FarmAuth())
+	farmVaccinationRoutes := r.Group("/vaccinations").Use(middlewares.FarmAuth(), requireFeature("vaccinations"))
 	{
 		farmVaccinationRoutes.GET("/", handler.GetFarmVaccinations)
 	}

@@ -18,7 +18,7 @@ type FlockFinancialHandler struct{}
 func SetupFlockFinancialRoutes(r *gin.Engine) {
 	handler := &FlockFinancialHandler{}
 
-	financialRoutes := r.Group("/flock-financial").Use(middlewares.FarmAuth())
+	financialRoutes := r.Group("/flock-financial").Use(middlewares.FarmAuth(), requireFeature("finances"))
 	{
 		financialRoutes.GET("/", handler.GetFinancialData)
 		financialRoutes.GET("/flock/:flockID", handler.GetFinancialDataByFlock)

@@ -18,7 +18,7 @@ type BudgetHandler struct{}
 func SetupBudgetRoutes(r *gin.Engine) {
 	handler := &BudgetHandler{}
 
-	budgetRoutes := r.Group("/budget").Use(middlewares.FarmAuth())
+	budgetRoutes := r.Group("/budget").Use(middlewares.FarmAuth(), requireFeature("budgets"))
 	{
 		budgetRoutes.GET("/", handler.GetBudgets)
 		budgetRoutes.GET("/flock/:flockID", handler.GetBudgetsByFlock)

@@ -99,6 +99,10 @@ func InviteStaff(farmID, inviterID uint, inviterRole, emailAddr, role string) (*
 		return nil, ErrAlreadyMember
 	}
 
+	if err := CheckStaffLimit(farmID, true); err != nil {
+		return nil, err
+	}
+
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
@@ -238,6 +242,10 @@ func AcceptInvite(token string, callerUserID uint, username, password string) (*
 				return err
 			}
 			newAccount = true
+		}
+
+		if err := CheckStaffLimit(invite.FarmID, false); err != nil {
+			return err
 		}
 
 		// Reuse the row if they were on this farm before (one row per farm/user pair)

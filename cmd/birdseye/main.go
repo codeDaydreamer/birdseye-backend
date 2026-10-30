@@ -228,7 +228,9 @@ func main() {
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
-		&models.AdminConfig{},
+		&models.Plan{},
+		&models.PromoCode{},
+		&models.PlatformSettings{},
 		&models.Payment{},
 		&models.EggAdjustment{},
 	)
@@ -283,6 +285,7 @@ func main() {
 	api.RegisterWebhookRoutes(router)
 	api.SetupEggAdjustmentRoutes(router)
 	api.SetupStaffRoutes(router)
+	api.SetupPlanRoutes(router)
 
 
 	// WebSocket routes

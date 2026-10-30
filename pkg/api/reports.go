@@ -24,7 +24,7 @@ func SetupReportsRoutes(r *gin.Engine) {
 		ReportsService: services.NewReportsService(db.DB),
 	}
 
-	reportsRoutes := r.Group("/reports").Use(middlewares.FarmAuth())
+	reportsRoutes := r.Group("/reports").Use(middlewares.FarmAuth(), requireFeature("reports"))
 	{
 		reportsRoutes.GET("/user/:userID", handler.GetUserReports)
 		reportsRoutes.POST("/expenses", handler.GenerateExpenseReport)

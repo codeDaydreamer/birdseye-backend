@@ -61,6 +61,9 @@ func staffErrorStatus(err error) int {
 }
 
 func respondStaffError(c *gin.Context, err error) {
+	if respondPlanLimit(c, err) {
+		return
+	}
 	status := staffErrorStatus(err)
 	if status == http.StatusInternalServerError {
 		log.Printf("Staff request failed: %v", err)

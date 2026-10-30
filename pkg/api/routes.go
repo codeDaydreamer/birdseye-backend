@@ -61,7 +61,7 @@ func SetupRoutes(router *gin.Engine) {
 	admin.PUT("/user/:id/reset-password", handleAdminResetUserPassword)
 
 	// NEW: Admin toggle beta pricing
-	admin.PUT("/toggle-beta-pricing", handleAdminToggleBetaPricing)
+	setupAdminPricingRoutes(admin)
 }
 
 
