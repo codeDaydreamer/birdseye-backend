@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
@@ -28,6 +29,7 @@ func SetupRoutes(router *gin.Engine) {
 		auth.POST("/login", handleUserLogin)
 		auth.GET("/google/callback", handleGoogleCallback)
 		auth.GET("/google/login", handleGoogleLogin)
+		auth.POST("/google/mobile", handleGoogleMobileSignIn)
 		auth.POST("/verify-otp", handleVerifyOTP)
 		auth.POST("/resend-otp", handleResendOTP)
 
@@ -321,6 +323,27 @@ if err := db.DB.Model(&user).Update("last_login", now).Error; err != nil {
 
 
 
+	c.JSON(http.StatusOK, gin.H{"token": token, "user": userPayload(c, user)})
+}
+
+// handleGoogleMobileSignIn signs in from the Android app with a Google ID token
+func handleGoogleMobileSignIn(c *gin.Context) {
+	var req struct {
+		IDToken string `json:"id_token"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id_token is required"})
+		return
+	}
+	token, user, err := services.GoogleSignInWithIDToken(req.IDToken)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrGoogleTokenInvalid) {
+			status = http.StatusUnauthorized
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"token": token, "user": userPayload(c, user)})
 }
 

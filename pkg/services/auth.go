@@ -1,6 +1,8 @@
 package services
 
 import (
+	"strconv"
+	"net/url"
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
@@ -95,50 +97,19 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 		return "", nil, err
 	}
 
-	// Check if the user exists in the database
-	var user models.User
-	if err := db.DB.Where("email = ?", userInfo.Email).First(&user).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// New user, register them
-			user = models.User{
-				Username:       userInfo.Name,
-				Email:          userInfo.Email,
-				ProfilePicture: userInfo.Picture,
-				Password:       "", // No password needed for Google sign-in
-			}
-
-			// Every new user starts as the owner of their own farm
-			if err := db.DB.Transaction(func(tx *gorm.DB) error {
-				if err := tx.Create(&user).Error; err != nil {
-					return err
-				}
-				_, err := models.CreateFarmForUser(tx, &user)
-				return err
-			}); err != nil {
-				log.Println("User registration failed:", err)
-				return "", nil, fmt.Errorf("failed to create user: %w", err)
-			}
-
-			// Send welcome email asynchronously
-			go func() {
-				if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
-					log.Printf("failed to send welcome email to %s: %v", user.Email, err)
-				}
-			}()
-		} else {
-			log.Println("Database error:", err)
-			return "", nil, fmt.Errorf("database error: %w", err)
-		}
+	user, err := signInWithGoogleProfile(userInfo.Email, userInfo.Name, userInfo.Picture)
+	if err != nil {
+		return "", nil, err
 	}
 
 	// Generate JWT token
-	tokenString, err := generateJWT(user)
+	tokenString, err := generateJWT(*user)
 	if err != nil {
 		log.Println("JWT token generation failed:", err)
 		return "", nil, fmt.Errorf("error generating token: %w", err)
 	}
 
-	return tokenString, &user, nil
+	return tokenString, user, nil
 }
 
 
@@ -463,3 +434,130 @@ func ResetPasswordWithOTP(emailAddr, otp, newPassword string) error {
 
 	return nil
 }
+
+
+// signInWithGoogleProfile finds the account for a Google-verified email, or creates it (with its own
+// farm) on first sign-in. Google has verified the email, so the account counts as verified.
+func signInWithGoogleProfile(emailAddr, name, picture string) (*models.User, error) {
+	emailAddr = strings.ToLower(strings.TrimSpace(emailAddr))
+	var user models.User
+	err := db.DB.Where("LOWER(email) = ?", emailAddr).First(&user).Error
+	if err == nil {
+		if !user.EmailVerified {
+			db.DB.Model(&user).Update("email_verified", true)
+			user.EmailVerified = true
+		}
+		return &user, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Usernames are unique; Google names aren't
+	username := strings.TrimSpace(name)
+	if username == "" {
+		username = strings.Split(emailAddr, "@")[0]
+	}
+	var taken int64
+	db.DB.Model(&models.User{}).Where("username = ?", username).Count(&taken)
+	if taken > 0 {
+		username = fmt.Sprintf("%s-%04d", username, time.Now().UnixNano()%10000)
+	}
+
+	user = models.User{
+		Username:       username,
+		Email:          emailAddr,
+		ProfilePicture: picture,
+		Password:       "", // signs in with Google
+		EmailVerified:  true,
+	}
+	// Every new user starts as the owner of their own farm
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		_, err := models.CreateFarmForUser(tx, &user)
+		return err
+	}); err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	go func() {
+		if err := email.SendWelcomeEmail(user.Email, user.Username); err != nil {
+			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+		}
+	}()
+	return &user, nil
+}
+
+// googleAudiences are the OAuth client IDs whose ID tokens we accept: the web client (which the
+// Android app uses as its serverClientId) plus any in GOOGLE_ALLOWED_CLIENT_IDS
+func googleAudiences() map[string]bool {
+	allowed := map[string]bool{}
+	for _, id := range append([]string{os.Getenv("GOOGLE_CLIENT_ID")}, strings.Split(os.Getenv("GOOGLE_ALLOWED_CLIENT_IDS"), ",")...) {
+		if id = strings.TrimSpace(id); id != "" {
+			allowed[id] = true
+		}
+	}
+	return allowed
+}
+
+// googleTokenInfoURL is Google's ID token check (GOOGLE_TOKENINFO_URL overrides it for local testing)
+var googleTokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
+
+// GoogleSignInWithIDToken signs in with an ID token from Google Sign-In on a phone: Google checks
+// the token's signature and expiry, and we check it was issued for Birdseye and the email is verified.
+func GoogleSignInWithIDToken(idToken string) (string, *models.User, error) {
+	if strings.TrimSpace(idToken) == "" {
+		return "", nil, errors.New("missing Google ID token")
+	}
+	checkURL := googleTokenInfoURL
+	if override := os.Getenv("GOOGLE_TOKENINFO_URL"); override != "" {
+		checkURL = override // local testing only
+	}
+	resp, err := http.Get(checkURL + "?id_token=" + url.QueryEscape(idToken))
+	if err != nil {
+		return "", nil, fmt.Errorf("couldn't reach Google: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, ErrGoogleTokenInvalid
+	}
+
+	var info struct {
+		Aud           string `json:"aud"`
+		Iss           string `json:"iss"`
+		Email         string `json:"email"`
+		EmailVerified string `json:"email_verified"`
+		Name          string `json:"name"`
+		Picture       string `json:"picture"`
+		Exp           string `json:"exp"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return "", nil, ErrGoogleTokenInvalid
+	}
+	exp, _ := strconv.ParseInt(info.Exp, 10, 64)
+	switch {
+	case !googleAudiences()[info.Aud],
+		info.Iss != "accounts.google.com" && info.Iss != "https://accounts.google.com",
+		info.EmailVerified != "true" || info.Email == "",
+		exp < time.Now().Unix():
+		return "", nil, ErrGoogleTokenInvalid
+	}
+
+	user, err := signInWithGoogleProfile(info.Email, info.Name, info.Picture)
+	if err != nil {
+		return "", nil, err
+	}
+	now := time.Now()
+	db.DB.Model(user).Update("last_login", now)
+
+	token, err := generateJWT(*user)
+	if err != nil {
+		return "", nil, err
+	}
+	return token, user, nil
+}
+
+// ErrGoogleTokenInvalid means the Google ID token was rejected
+var ErrGoogleTokenInvalid = errors.New("Google sign-in couldn't be verified, please try again")
