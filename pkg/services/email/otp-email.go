@@ -4,7 +4,7 @@ import "fmt"
 
 // SendOTPEmail sends a formatted OTP verification email to a new user
 func SendOTPEmail(toEmail, name, otp string) error {
-	subject := "🔐 Your Birdseye Poultry OTP Code"
+	subject := "Your Birdseye Poultry OTP Code"
 
 	body := fmt.Sprintf(`
 		<!DOCTYPE html>

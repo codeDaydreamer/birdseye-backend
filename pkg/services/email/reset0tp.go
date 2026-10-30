@@ -4,7 +4,7 @@ import "fmt"
 
 // SendPasswordResetOTP sends a formatted password reset OTP email to a user
 func SendPasswordResetOTP(toEmail, name, otp string) error {
-	subject := "🔐 Password Reset OTP - Birdseye Poultry"
+	subject := "Password Reset OTP - Birdseye Poultry"
 
 	body := fmt.Sprintf(`
 		<!DOCTYPE html>

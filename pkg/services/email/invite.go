@@ -7,7 +7,7 @@ import (
 
 // SendFarmInviteEmail invites someone to join a farm's staff; inviteURL opens the acceptance page
 func SendFarmInviteEmail(toEmail, farmName, inviterName, role, inviteURL string) error {
-	subject := fmt.Sprintf("🐓 You're invited to join %s on Birdseye Poultry", farmName)
+	subject := fmt.Sprintf("You're invited to join %s on Birdseye Poultry", farmName)
 
 	// Farm and inviter names are user-entered, so escape them for HTML
 	farmName = html.EscapeString(farmName)
@@ -83,7 +83,7 @@ func SendFarmInviteEmail(toEmail, farmName, inviterName, role, inviteURL string)
 		<body>
 			<div class="container">
 				<div class="header">
-					<h1>You're invited to %s 🐓</h1>
+					<h1>You're invited to %s</h1>
 				</div>
 				<div class="content">
 					<p>Hi there,</p>

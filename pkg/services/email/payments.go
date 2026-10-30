@@ -79,15 +79,15 @@ func SendPaymentSuccessEmail(toEmail, name, mpesaRef string, amount float64) err
 		<body>
 			<div class="container">
 				<div class="header">
-					<h1>Payment Confirmed ✅</h1>
+					<h1>Payment Confirmed</h1>
 				</div>
 				<div class="content">
 					<p>Hi %s,</p>
-					<p>We've successfully received your payment of <strong>KES %.0f</strong> via M-PESA. 🎉</p>
+					<p>We've successfully received your payment of <strong>KES %.0f</strong> via M-PESA.</p>
 					<p><strong>Receipt Number:</strong> %s</p>
 					<p>Your Birdseye account is now fully active. You can continue using all features without interruption.</p>
 					<p>Need help or a receipt?</p>
-					<p><a href="https://wa.me/254750109154" class="whatsapp">💬 Contact us on WhatsApp</a></p>
+					<p><a href="https://wa.me/254750109154" class="whatsapp">Contact us on WhatsApp</a></p>
 					<a href="https://app.birdseye-poultry.com" class="button">Open My Dashboard</a>
 					<p style="margin-top: 30px;">Thanks for choosing Birdseye Poultry!</p>
 					<p>Best regards,<br><strong>Kevin</strong><br>Developer, 816 Dynamics</p>
@@ -180,7 +180,7 @@ func SendPaymentFailureEmail(toEmail, name string, amount float64, reason string
 		<body>
 			<div class="container">
 				<div class="header" style="background-color:#ef4444;">
-					<h1>Payment Failed ❌</h1>
+					<h1>Payment Failed</h1>
 				</div>
 				<div class="content">
 					<p>Hi %s,</p>
@@ -188,7 +188,7 @@ func SendPaymentFailureEmail(toEmail, name string, amount float64, reason string
 					<p><strong>Reason:</strong> %s</p>
 					<p>Please ensure your M-PESA number is correct and has sufficient funds, then try again.</p>
 					<p>If the issue persists, reach out for help:</p>
-					<p><a href="https://wa.me/254750109154" class="whatsapp">💬 Chat with us on WhatsApp</a></p>
+					<p><a href="https://wa.me/254750109154" class="whatsapp">Chat with us on WhatsApp</a></p>
 					<p>We’re here to help you stay on track with your farm.</p>
 					<p>Warm regards,<br><strong>Kevin</strong><br>Developer, 816 Dynamics</p>
 				</div>
@@ -204,7 +204,7 @@ func SendPaymentFailureEmail(toEmail, name string, amount float64, reason string
 	return SendEmail(toEmail, subject, body)
 }
 func SendInvoiceEmail(toEmail, name string, amount float64, reference string) error {
-	subject := fmt.Sprintf("🧾 Invoice – KES %.0f Payment Due", amount)
+	subject := fmt.Sprintf("Invoice – KES %.0f Payment Due", amount)
 	body := fmt.Sprintf(`<!DOCTYPE html>
 	<!-- Similar style to welcome email... -->
 	<body>
@@ -219,7 +219,7 @@ func SendInvoiceEmail(toEmail, name string, amount float64, reference string) er
 	return SendEmail(toEmail, subject, body)
 }
 func SendPaymentReminderEmail(toEmail, name string) error {
-	subject := "📢 Reminder: Your Subscription Payment is Due"
+	subject := "Reminder: Your Subscription Payment is Due"
 	body := fmt.Sprintf(`
 	<body>
 		<p>Hi %s,</p>

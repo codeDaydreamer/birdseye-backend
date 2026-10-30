@@ -1,10 +1,20 @@
 package email
 
-import "fmt"
+import (
+	"fmt"
+
+	"birdseye-backend/pkg/models"
+)
 
 // SendWelcomeEmail sends a beautifully formatted welcome email to a new user
 func SendWelcomeEmail(toEmail, name string) error {
-	subject := "🎉 Welcome to Birdseye Poultry – Your Trial Starts Now!"
+	// The trial is an admin setting, so describe whatever is configured
+	subject := "Welcome to Birdseye Poultry"
+	trialLine := "Your account is ready."
+	if settings, err := models.GetPlatformSettings(); err == nil && settings.TrialEnabled && settings.TrialDays > 0 {
+		subject = "Welcome to Birdseye Poultry – Your Trial Starts Now!"
+		trialLine = fmt.Sprintf("You've officially started your <strong>%d-day free trial</strong> of <strong>Birdseye Poultry Manager</strong>.", settings.TrialDays)
+	}
 
 	body := fmt.Sprintf(`
 		<!DOCTYPE html>
@@ -81,22 +91,22 @@ func SendWelcomeEmail(toEmail, name string) error {
 		<body>
 			<div class="container">
 				<div class="header">
-					<h1>Welcome to Birdseye Poultry 🐓</h1>
+					<h1>Welcome to Birdseye Poultry</h1>
 				</div>
 				<div class="content">
 					<p>Hi %s,</p>
-					<p>We're so glad you're here! 🎉 You've officially started your <strong>14-day free trial</strong> of <strong>Birdseye Poultry Manager</strong>.</p>
+					<p>We're so glad you're here! %s</p>
 					<p>With Birdseye, you can:</p>
 					<ul>
-						<li>📊 Track egg production and sales</li>
-						<li>🧾 Record expenses & income easily</li>
-						<li>📅 Monitor flock performance</li>
-						<li>📈 View insights from one smart dashboard</li>
+						<li>Track egg production and sales</li>
+						<li>Record expenses & income easily</li>
+						<li>Monitor flock performance</li>
+						<li>View insights from one smart dashboard</li>
 					</ul>
 					<p>Need help getting started or have questions?</p>
-					<p><a href="https://wa.me/254750109154" class="whatsapp">💬 Chat with us on WhatsApp</a></p>
+					<p><a href="https://wa.me/254750109154" class="whatsapp">Chat with us on WhatsApp</a></p>
 					<a href="https://app.birdseye-poultry.com/auth" class="button">Launch Your Dashboard</a>
-					<p style="margin-top: 30px;">We’re rooting for you! 🐣</p>
+					<p style="margin-top: 30px;">We’re rooting for you!</p>
 					<p>Warmly,<br><strong>Kevin</strong><br>Developer, 816 Dynamics</p>
 				</div>
 				<div class="footer">
@@ -106,7 +116,7 @@ func SendWelcomeEmail(toEmail, name string) error {
 			</div>
 		</body>
 		</html>
-	`, name)
+	`, name, trialLine)
 
 	return SendEmail(toEmail, subject, body)
 }

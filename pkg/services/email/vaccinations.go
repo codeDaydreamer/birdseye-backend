@@ -7,7 +7,7 @@ import (
 
 // SendVaccinationReminderEmail sends a nicely formatted vaccination reminder email to the user
 func SendVaccinationReminderEmail(toEmail string, userName string, vaccination *models.Vaccination) error {
-	subject := "🐓 Birdseye Poultry: Vaccination Reminder"
+	subject := "Birdseye Poultry: Vaccination Reminder"
 
 	vaccinationDate := vaccination.Date.Format("January 2, 2006")
 
@@ -79,7 +79,7 @@ func SendVaccinationReminderEmail(toEmail string, userName string, vaccination *
 	<body>
 		<div class="container">
 			<div class="header">
-				<h1>Vaccination Reminder 🐓</h1>
+				<h1>Vaccination Reminder</h1>
 			</div>
 			<div class="content">
 				<p>Hi %s,</p>

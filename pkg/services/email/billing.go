@@ -13,7 +13,7 @@ func SendBillingEmail(toEmail, name string, amount float64, dueDate string, till
 		<p>You can pay via M-PESA TILL number <strong>%s</strong>.</p>
 		<p>If you've already made the payment, kindly ignore this message. Otherwise, feel free to <a href="https://wa.me/254750109154">contact our support team on WhatsApp</a> if you need help.</p>
 		<p>Thank you for choosing Birdseye Poultry!</p>
-		<p>– The Birdseye Team 🐓</p>
+		<p>– The Birdseye Team</p>
 	`, name, amount, dueDate, tillNumber)
 
 	return SendEmail(toEmail, subject, body)
