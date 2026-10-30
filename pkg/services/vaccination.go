@@ -159,14 +159,3 @@ func (s *VaccinationService) SendVaccinationReminder(vaccination *models.Vaccina
 
 	return nil
 }
-
-// GetFarmManagers returns the active owners and managers of a farm, who receive farm-wide emails
-func (s *VaccinationService) GetFarmManagers(farmID uint) ([]models.User, error) {
-	var users []models.User
-	err := s.DB.
-		Joins("JOIN farm_members ON farm_members.user_id = users.id").
-		Where("farm_members.farm_id = ? AND farm_members.status = ? AND farm_members.role IN ?",
-			farmID, "active", []string{models.FarmRoleOwner, models.FarmRoleManager}).
-		Find(&users).Error
-	return users, err
-}

@@ -50,15 +50,14 @@ func (ct *CustomTime) Scan(value interface{}) error {
 // Payment model
 type Payment struct {
 	ID                 string      `gorm:"primaryKey;type:varchar(36)" json:"id"`
-	UserID             uint        `gorm:"index;not null" json:"user_id"`
-	FarmID uint `json:"farm_id" gorm:"index"` // tenant; backfilled from user_id
+	UserID             uint        `gorm:"index;not null" json:"user_id"` // who paid
+	FarmID             uint        `gorm:"index;not null" json:"farm_id"` // farm the payment is for
 	Amount             float64     `gorm:"not null" json:"amount"`
 	PhoneNumber        string      `gorm:"type:varchar(20);not null" json:"phone_number"`
 	Status             string      `gorm:"default:'initiated'" json:"status"`
 
 	Reference          string      `gorm:"type:varchar(255);uniqueIndex" json:"reference"`
-	TxRef *string `gorm:"type:varchar(255);uniqueIndex" json:"tx_ref"`
-	PaymentID          *string     `gorm:"type:varchar(191);uniqueIndex" json:"payment_id"`
+	PaymentID          *string     `gorm:"type:varchar(191);uniqueIndex" json:"payment_id"` // Dynapay payment id
 
 	// Daraja (M-Pesa) fields
 	MpesaReference     string      `gorm:"type:varchar(255)" json:"mpesa_reference"`

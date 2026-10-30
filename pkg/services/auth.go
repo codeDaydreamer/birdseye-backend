@@ -105,8 +105,6 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 				Email:          userInfo.Email,
 				ProfilePicture: userInfo.Picture,
 				Password:       "", // No password needed for Google sign-in
-				IsTrialActive:  true,
-				TrialEndsAt:    time.Now().AddDate(0, 0, 30), // 30 days from now
 			}
 
 			// Every new user starts as the owner of their own farm
@@ -130,11 +128,6 @@ func GoogleAuthCallback(code string) (string, *models.User, error) {
 		} else {
 			log.Println("Database error:", err)
 			return "", nil, fmt.Errorf("database error: %w", err)
-		}
-	} else {
-		// Existing user: optionally refresh trial if needed
-		if user.IsTrialActive && user.TrialEndsAt.IsZero() {
-			user.TrialEndsAt = user.CreatedAt.AddDate(0, 0, 30)
 		}
 	}
 
@@ -235,10 +228,6 @@ func RegisterUser(user *models.User) (*models.User, error) {
 		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
 
-	// Set trial period: 30 days from now
-	user.TrialEndsAt = time.Now().AddDate(0, 0, 30)
-	user.IsTrialActive = true
-
 	// Insert user into database, as the owner of their own new farm
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(user).Error; err != nil {
@@ -331,43 +320,6 @@ func GetUserByID(userID uint) (*models.User, error) {
 		}
 		return nil, fmt.Errorf("error retrieving user: %w", err)
 	}
-
-	// Calculate trial end date from CreatedAt
-	trialEndsAt := user.CreatedAt.AddDate(0, 0, 30)
-	isTrialActive := time.Now().Before(trialEndsAt)
-
-	// Update IsTrialActive if needed
-	if user.IsTrialActive != isTrialActive {
-		user.IsTrialActive = isTrialActive
-		if err := db.DB.Model(&user).Update("is_trial_active", isTrialActive).Error; err != nil {
-			return nil, fmt.Errorf("failed to update trial status: %w", err)
-		}
-	}
-
-	// If not on trial, check last payment date
-	if !isTrialActive {
-		var lastPayment models.Payment
-		err := db.DB.
-			Where("user_id = ? AND status = ?", user.ID, "success").
-			Order("paid_at DESC").
-			First(&lastPayment).Error
-
-		if err == nil {
-			// Check if last paid_at is older than 36 days
-			cutoffDate := time.Now().AddDate(0, 0, -36)
-			if lastPayment.PaidAt.Time.Before(cutoffDate) && user.PaymentStatus != "unpaid" {
-				user.PaymentStatus = "unpaid"
-				if err := db.DB.Model(&user).Update("payment_status", "unpaid").Error; err != nil {
-					return nil, fmt.Errorf("failed to update payment status: %w", err)
-				}
-			}
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("failed to fetch last payment: %w", err)
-		}
-	}
-
-	// Set computed field
-	user.TrialEndsAt = trialEndsAt
 
 	return &user, nil
 }

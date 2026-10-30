@@ -22,32 +22,6 @@ func InitAuthMiddleware() {
 	}
 }
 
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
-			c.Abort()
-			return
-		}
-
-		user, err := GetUserFromToken(token)
-		if err != nil {
-			if errors.Is(err, ErrTokenExpired) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token expired, please log in again"})
-			} else {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: " + err.Error()})
-			}
-			c.Abort()
-			return
-		}
-
-		c.Set("user_id", user.ID)
-		c.Set("role", user.Role)
-		c.Next()
-	}
-}
-
 func GetUserFromToken(tokenString string) (*models.User, error) {
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 	if tokenString == "" {

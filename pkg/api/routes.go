@@ -50,7 +50,7 @@ func SetupRoutes(router *gin.Engine) {
 
 	// Admin protected routes
 	admin := router.Group("/admin")
-	admin.Use(middlewares.AuthMiddleware(), middlewares.AdminAuthMiddleware())
+	admin.Use(middlewares.AdminAuthMiddleware())
 	admin.GET("/me", handleGetAdminProfile)
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/user/:id", handleAdminGetUserByID)
@@ -201,7 +201,6 @@ func handleGetAdminProfile(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Admin data fetched from database: %+v", admin)
 
 	// Return only safe/sanitized admin data (exclude sensitive info)
 	sanitizedAdmin := gin.H{
@@ -216,6 +215,20 @@ func handleGetAdminProfile(c *gin.Context) {
 
 // Handle admin registration
 func handleAdminRegistration(c *gin.Context) {
+	// Only the very first admin can self-register; after that, an existing admin must be signed in
+	var adminCount int64
+	if err := db.DB.Model(&models.Admin{}).Count(&adminCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check admins"})
+		return
+	}
+	if adminCount > 0 {
+		caller, err := middlewares.GetUserFromToken(c.GetHeader("Authorization"))
+		if err != nil || caller.Role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only an existing admin can create admins"})
+			return
+		}
+	}
+
 	var admin models.Admin  // Assuming you have a separate Admin model
 
 	if err := c.ShouldBindJSON(&admin); err != nil {
@@ -231,7 +244,6 @@ func handleAdminRegistration(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Registered Admin: %+v", registeredAdmin)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Admin registration successful.",
 		"admin":   registeredAdmin,
@@ -256,8 +268,6 @@ func handleAdminLogin(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Generated Admin Token: %s", token)
-	log.Printf("Logged-in Admin: %+v", admin)
 
 	c.JSON(http.StatusOK, gin.H{"token": token, "admin": admin})
 }
@@ -278,7 +288,6 @@ func handleUserRegistration(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Registered User: %+v", registeredUser)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Registration successful. Redirecting to homepage.",
 		"user":    registeredUser,
@@ -311,10 +320,7 @@ if err := db.DB.Model(&user).Update("last_login", now).Error; err != nil {
 
 
 
-	log.Printf("Generated Token: %s", token)
-	log.Printf("Logged-in User: %+v", user)
-
-	c.JSON(http.StatusOK, gin.H{"token": token, "user": user})
+	c.JSON(http.StatusOK, gin.H{"token": token, "user": userPayload(c, user)})
 }
 
 func handleGoogleLogin(c *gin.Context) {
@@ -347,9 +353,6 @@ func handleGoogleCallback(c *gin.Context) {
 		log.Printf("Failed to update last login time: %v", err)
 	}
 
-	// Log the token and user details
-	log.Printf("Generated Google Auth Token: %s", token)
-	log.Printf("Authenticated User: %+v\n", user)
 
 	// Get frontend URL from environment variable or fallback
 	frontendURL := os.Getenv("FRONTEND_URL")
@@ -378,24 +381,7 @@ func handleGetUserProfile(c *gin.Context) {
 		return
 	}
 
-	log.Printf("User data fetched from database: %+v", user)
-
-	c.JSON(http.StatusOK, gin.H{
-	"user": gin.H{
-		"id":              user.ID,
-		"username":        user.Username,
-		"email":           user.Email,
-		"profile_picture": user.ProfilePicture,
-		"phone_number":         user.PhoneNumber,
-		"subscription":   user.Subscription,
-		"billing_info":    user.BillingInfo,
-		"status":			user.Status,
-		"created_at":		user.CreatedAt,	
-		"trial_ends_at":   user.ComputeTrialEndsAt(),
-		"is_trial_active": user.ComputeIsTrialActive(),
-		"email_verified": user.EmailVerified,
-	},
-})
+	c.JSON(http.StatusOK, gin.H{"user": userPayload(c, user)})
 
 }
 
@@ -526,7 +512,11 @@ func handleAdminGetAllUsers(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get users"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"users": users})
+	payloads := make([]gin.H, 0, len(users))
+	for i := range users {
+		payloads = append(payloads, adminUserPayload(&users[i]))
+	}
+	c.JSON(http.StatusOK, gin.H{"users": payloads})
 }
 
 func handleAdminGetUserByID(c *gin.Context) {
@@ -536,17 +526,7 @@ func handleAdminGetUserByID(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-	"user": gin.H{
-		"id":              user.ID,
-		"username":        user.Username,
-		"email":           user.Email,
-		"profile_picture": user.ProfilePicture,
-		"phone_number":         user.PhoneNumber,
-		"subscription":   user.Subscription,
-		"billing_info":    user.BillingInfo,
-	},
-})
+	c.JSON(http.StatusOK, gin.H{"user": adminUserPayload(user)})
 
 }
 
@@ -565,7 +545,7 @@ func handleAdminUpdateUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": updatedUser})
+	c.JSON(http.StatusOK, gin.H{"user": adminUserPayload(updatedUser)})
 }
 
 

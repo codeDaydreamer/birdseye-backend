@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"birdseye-backend/pkg/db" // Ensure to import the db package
@@ -12,26 +11,24 @@ import (
 	"gorm.io/gorm"
 )
 
-// BillingInfo represents user billing details
+// BillingInfo holds a farm's billing details (one per farm)
 type BillingInfo struct {
-	ID         int    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID     int    `gorm:"uniqueIndex" json:"user_id"`
-	FarmID     *uint  `gorm:"index" json:"farm_id"` // nullable until cutover; becomes the unique owner key
-	// Opaque provider data only -- never store PAN/CVV (Paystack/Dynapay hold the instrument)
+	ID     int  `gorm:"primaryKey;autoIncrement" json:"id"`
+	FarmID uint `gorm:"uniqueIndex;not null" json:"farm_id"`
+	// Opaque provider data only -- never store PAN/CVV
 	CardLast4     string `gorm:"type:varchar(4)" json:"card_last4"`
 	CardBrand     string `gorm:"type:varchar(30)" json:"card_brand"`
 	ProviderToken string `json:"-"`
-	Address    string `json:"address"`
-	City       string `json:"city"`
-	Country    string `json:"country"`
-	ZipCode    string `json:"zip_code"`
+	Address       string `json:"address"`
+	City          string `json:"city"`
+	Country       string `json:"country"`
+	ZipCode       string `json:"zip_code"`
 }
 
-// Subscription represents user subscription details
+// Subscription holds a farm's subscription details (one per farm)
 type Subscription struct {
 	ID            int        `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID        int        `gorm:"uniqueIndex" json:"user_id"`
-	FarmID        *uint      `gorm:"index" json:"farm_id"` // nullable until cutover; becomes the unique owner key
+	FarmID        uint       `gorm:"uniqueIndex;not null" json:"farm_id"`
 	Plan          string     `json:"plan"`
 	Status        string     `json:"status"`
 	ExpiryDate    *time.Time `json:"expiry_date"`
@@ -52,23 +49,14 @@ type User struct {
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
 
-	PaymentStatus  string       `gorm:"default:'unpaid'" json:"payment_status"`
-
-	TrialEndsAt    time.Time    `json:"trial_ends_at"` // persistent
-	IsTrialActive  bool         `json:"is_trial_active"`
-
-	// New field for beta testers discount
+	// Beta testers get a discounted subscription price (see services.SubscriptionPrice)
 	IsBetaTester   bool         `gorm:"default:true" json:"is_beta_tester"`
 	DiscountedPrice int         `gorm:"default:1500" json:"discounted_price"` // 2500 by default, 1500 for beta testers
 
 	OTP            string       `gorm:"-" json:"-"`
 	OTPHashed      string       `json:"-"`
 	OTPExpiresAt   *time.Time   `json:"-"`
-	NeedsSubscriptionRenewal bool `gorm:"-" json:"needs_subscription_renewal"`
 	EmailVerified  bool         `gorm:"default:false" json:"email_verified"`
-
-	Subscription Subscription `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"subscription"`
-	BillingInfo  BillingInfo  `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"billing_info"`
 }
 
 
@@ -124,49 +112,6 @@ func GetUserByID(userID uint) (*User, error) {
 	return &user, nil
 }
 
-// ComputeTrialEndsAt returns the trial end date (14 days for beta launch)
-func (u *User) ComputeTrialEndsAt() time.Time {
-	return u.CreatedAt.AddDate(0, 0, 14) // 14 days trial
-}
-
-// ComputeIsTrialActive checks if trial is still active
-func (u *User) ComputeIsTrialActive() bool {
-	return time.Now().Before(u.ComputeTrialEndsAt())
-}
-// UpdateTrialPeriods sets TrialEndsAt and IsTrialActive for users who don't have it set
-func UpdateTrialPeriods() error {
-	var users []User
-
-	if err := db.DB.Find(&users).Error; err != nil {
-		return err
-	}
-
-	for _, user := range users {
-		if user.TrialEndsAt.IsZero() {
-			trialEnds := user.ComputeTrialEndsAt()
-			isActive := user.ComputeIsTrialActive()
-
-			if err := db.DB.Model(&User{}).Where("id = ?", user.ID).
-				Updates(map[string]interface{}{
-					"trial_ends_at":   trialEnds,
-					"is_trial_active": isActive,
-				}).Error; err != nil {
-				log.Printf("Failed to update trial for user %d: %v", user.ID, err)
-			} else {
-				log.Printf("Trial updated for user %d: ends at %v", user.ID, trialEnds)
-			}
-		}
-
-		// Ensure beta pricing is applied
-		user.SetBetaPricing()
-		if err := db.DB.Model(&User{}).Where("id = ?", user.ID).
-			Update("discounted_price", user.DiscountedPrice).Error; err != nil {
-			log.Printf("Failed to update pricing for user %d: %v", user.ID, err)
-		}
-	}
-
-	return nil
-}
 
 // MarshalJSON never exposes the password hash in API responses (Password still binds from JSON input)
 func (u User) MarshalJSON() ([]byte, error) {

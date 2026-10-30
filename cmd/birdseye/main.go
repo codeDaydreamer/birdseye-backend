@@ -169,7 +169,7 @@ func startVaccinationReminderTask(vaccinationService *services.VaccinationServic
 				}
 
 				// Email the farm's owners and managers
-				managers, err := vaccinationService.GetFarmManagers(vaccination.FarmID)
+				managers, err := services.GetFarmManagers(vaccination.FarmID)
 				if err != nil {
 					log.Printf("Error fetching farm managers for vaccination %d: %v", vaccination.ID, err)
 					continue
@@ -228,6 +228,7 @@ func main() {
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
+		&models.AdminConfig{},
 		&models.Payment{},
 		&models.EggAdjustment{},
 	)
@@ -236,16 +237,7 @@ func main() {
 	}
 	log.Println("Database migrated successfully")
 	
-		// --- New: Update trial periods for existing users ---
-	if err := models.UpdateTrialPeriods(); err != nil {
-		log.Fatalf("Failed to update trial periods: %v", err)
-	}
-	log.Println("Trial periods updated for all existing users")
-	if err := models.MigrateAndSeedBetaFields(); err != nil {
-		log.Fatalf("Migration failed: %v", err)
-	}
-	log.Println("Beta Fields Migration completed successfully")
-
+	
 	// Load VAPID keys (needs the DB for push subscriptions)
 	loadVAPIDKeys()
 
@@ -290,7 +282,6 @@ func main() {
 	api.RegisterPaymentRoutes(router)
 	api.RegisterWebhookRoutes(router)
 	api.SetupEggAdjustmentRoutes(router)
-	api.SetupPaystackRoutes(router, db.DB)
 
 
 	// WebSocket routes

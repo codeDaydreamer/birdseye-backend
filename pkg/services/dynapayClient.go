@@ -84,9 +84,6 @@ func (d *dynapayClient) fetchToken() error {
 
 	d.token = result.Token
 	d.tokenExp = time.Now().Add(4 * time.Minute) // safe buffer
-
-	// Log the token once (for copying into env if needed)
-	log.Println("🔐 Dynapay token fetched:", d.token)
 	return nil
 }
 

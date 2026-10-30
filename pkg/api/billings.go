@@ -2,45 +2,36 @@ package api
 
 import (
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-// BillingHandler handles billing-related requests
+// BillingHandler handles the farm's billing details
 type BillingHandler struct{}
 
-// SetupBillingRoutes sets up billing API routes
+// SetupBillingRoutes sets up billing API routes: owners and managers can read, only owners change them
 func SetupBillingRoutes(r *gin.Engine) {
 	handler := &BillingHandler{}
+	ownerOnly := middlewares.RequireFarmRole(models.FarmRoleOwner)
 
-	billingRoutes := r.Group("/billing").Use(middlewares.AuthMiddleware())
+	billingRoutes := r.Group("/billing").Use(middlewares.FarmAuth())
 	{
-		billingRoutes.GET("/", handler.GetBillingInfo)
-		billingRoutes.POST("/", handler.AddBillingInfo)
-		billingRoutes.PUT("/", handler.UpdateBillingInfo)
-		billingRoutes.DELETE("/", handler.DeleteBillingInfo)
+		billingRoutes.GET("/", middlewares.RequireFarmRole(models.FarmRoleOwner, models.FarmRoleManager), handler.GetBillingInfo)
+		billingRoutes.POST("/", ownerOnly, handler.SaveBillingInfo)
+		billingRoutes.PUT("/", ownerOnly, handler.SaveBillingInfo)
+		billingRoutes.DELETE("/", ownerOnly, handler.DeleteBillingInfo)
 	}
 }
 
-// GetBillingInfo retrieves billing information for the authenticated user
+// GetBillingInfo retrieves the farm's billing details
 func (h *BillingHandler) GetBillingInfo(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var billing models.BillingInfo
-	if err := db.DB.Where("user_id = ?", user.ID).First(&billing).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).First(&billing).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Billing info not found"})
 		return
 	}
@@ -48,84 +39,34 @@ func (h *BillingHandler) GetBillingInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, billing)
 }
 
-// AddBillingInfo creates billing info
-func (h *BillingHandler) AddBillingInfo(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
-		return
-	}
+// SaveBillingInfo creates or updates the farm's billing details (one per farm)
+func (h *BillingHandler) SaveBillingInfo(c *gin.Context) {
+	farmID, _ := farmContext(c)
 
 	var billing models.BillingInfo
-	if err := c.ShouldBindJSON(&billing); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	billing.UserID = userID
-
-	if err := db.DB.Create(&billing).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create billing info"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, billing)
-}
-
-// UpdateBillingInfo updates billing details
-func (h *BillingHandler) UpdateBillingInfo(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
-
-	var billing models.BillingInfo
-	if err := db.DB.Where("user_id = ?", user.ID).First(&billing).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Billing info not found"})
-		return
-	}
+	db.DB.Where("farm_id = ?", farmID).Limit(1).Find(&billing)
+	id, token := billing.ID, billing.ProviderToken
 
 	if err := c.ShouldBindJSON(&billing); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Clients can't set the farm or the provider token
+	billing.ID, billing.FarmID, billing.ProviderToken = id, farmID, token
 
 	if err := db.DB.Save(&billing).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update billing info"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save billing info"})
 		return
 	}
 
 	c.JSON(http.StatusOK, billing)
 }
 
-// DeleteBillingInfo removes billing info
+// DeleteBillingInfo removes the farm's billing details
 func (h *BillingHandler) DeleteBillingInfo(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
-
-	if err := db.DB.Where("user_id = ?", user.ID).Delete(&models.BillingInfo{}).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Delete(&models.BillingInfo{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete billing info"})
 		return
 	}

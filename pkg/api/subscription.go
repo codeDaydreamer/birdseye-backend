@@ -2,45 +2,36 @@ package api
 
 import (
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-// SubscriptionHandler handles subscription-related requests
+// SubscriptionHandler handles the farm's subscription record
 type SubscriptionHandler struct{}
 
-// SetupSubscriptionRoutes sets up subscription API routes
+// SetupSubscriptionRoutes sets up subscription API routes: any member can read, only owners change it
 func SetupSubscriptionRoutes(r *gin.Engine) {
 	handler := &SubscriptionHandler{}
+	ownerOnly := middlewares.RequireFarmRole(models.FarmRoleOwner)
 
-	subRoutes := r.Group("/subscriptions").Use(middlewares.AuthMiddleware())
+	subRoutes := r.Group("/subscriptions").Use(middlewares.FarmAuth())
 	{
 		subRoutes.GET("/", handler.GetSubscription)
-		subRoutes.POST("/", handler.AddSubscription)
-		subRoutes.PUT("/", handler.UpdateSubscription)
-		subRoutes.DELETE("/", handler.DeleteSubscription)
+		subRoutes.POST("/", ownerOnly, handler.SaveSubscription)
+		subRoutes.PUT("/", ownerOnly, handler.SaveSubscription)
+		subRoutes.DELETE("/", ownerOnly, handler.DeleteSubscription)
 	}
 }
 
-// GetSubscription retrieves the subscription for the authenticated user
+// GetSubscription retrieves the farm's subscription
 func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
 	var subscription models.Subscription
-	if err := db.DB.Where("user_id = ?", user.ID).First(&subscription).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).First(&subscription).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Subscription not found"})
 		return
 	}
@@ -48,84 +39,33 @@ func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, subscription)
 }
 
-// AddSubscription creates a new subscription
-func (h *SubscriptionHandler) AddSubscription(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
-		return
-	}
+// SaveSubscription creates or updates the farm's subscription (one per farm)
+func (h *SubscriptionHandler) SaveSubscription(c *gin.Context) {
+	farmID, _ := farmContext(c)
 
 	var subscription models.Subscription
-	if err := c.ShouldBindJSON(&subscription); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	subscription.UserID = userID
-
-	if err := db.DB.Create(&subscription).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subscription"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, subscription)
-}
-
-// UpdateSubscription modifies an existing subscription
-func (h *SubscriptionHandler) UpdateSubscription(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
-
-	var subscription models.Subscription
-	if err := db.DB.Where("user_id = ?", user.ID).First(&subscription).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Subscription not found"})
-		return
-	}
+	db.DB.Where("farm_id = ?", farmID).Limit(1).Find(&subscription)
+	id := subscription.ID
 
 	if err := c.ShouldBindJSON(&subscription); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	subscription.ID, subscription.FarmID = id, farmID
 
 	if err := db.DB.Save(&subscription).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update subscription"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save subscription"})
 		return
 	}
 
 	c.JSON(http.StatusOK, subscription)
 }
 
-// DeleteSubscription removes a subscription
+// DeleteSubscription removes the farm's subscription
 func (h *SubscriptionHandler) DeleteSubscription(c *gin.Context) {
-	userVal, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	farmID, _ := farmContext(c)
 
-	user, ok := userVal.(*models.User)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user data"})
-		return
-	}
-
-	if err := db.DB.Where("user_id = ?", user.ID).Delete(&models.Subscription{}).Error; err != nil {
+	if err := db.DB.Where("farm_id = ?", farmID).Delete(&models.Subscription{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete subscription"})
 		return
 	}

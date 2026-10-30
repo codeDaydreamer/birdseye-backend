@@ -3,17 +3,14 @@ package services
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"time"
 
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
-	"birdseye-backend/pkg/services/email"
 
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -61,6 +58,25 @@ func AdminUpdateUserByID(idStr string, updates map[string]interface{}) (*models.
 
 	// Optionally remove ID if sent
 	delete(updates, "id")
+
+	// Billing lives on the user's farm now: apply those fields there, never to the users table
+	farmUpdates := map[string]interface{}{}
+	if v, ok := updates["trial_ends_at"]; ok {
+		farmUpdates["trial_ends_at"] = v
+	}
+	for _, key := range []string{"payment_status", "is_trial_active", "trial_ends_at", "needs_subscription_renewal",
+		"subscription", "billing_info", "farm_id", "farm_name", "farms", "farm_role", "paid_until"} {
+		delete(updates, key)
+	}
+	if len(farmUpdates) > 0 {
+		farm, err := GetOwnedFarm(user.ID)
+		if err != nil {
+			return nil, errors.New("user has no farm to update")
+		}
+		if err := db.DB.Model(&models.Farm{}).Where("id = ?", farm.ID).Updates(farmUpdates).Error; err != nil {
+			return nil, err
+		}
+	}
 
 	if err := db.DB.Model(user).Updates(updates).Error; err != nil {
 		return nil, err
@@ -221,37 +237,6 @@ func AdminResetUserPassword(userIDStr, newPassword string) error {
 	// Only update the Password field explicitly, no other fields get changed
 	if err := db.DB.Model(&user).Update("password", user.Password).Error; err != nil {
 		return errors.New("failed to update password")
-	}
-
-	return nil
-}
-func EvaluateSubscriptionStatus(u *models.User) error {
-	var lastPayment models.Payment
-
-	err := db.DB.
-		Where("user_id = ? AND status = ?", u.ID, "success").
-		Order("created_at DESC").
-		First(&lastPayment).Error
-
-	if err != nil {
-		u.NeedsSubscriptionRenewal = true
-		return nil
-	}
-
-	expiry := lastPayment.CreatedAt.Add(32 * 24 * time.Hour)
-	u.NeedsSubscriptionRenewal = time.Now().After(expiry)
-
-	if u.NeedsSubscriptionRenewal {
-		ref := fmt.Sprintf("INV-%s", uuid.NewString()[:8])
-
-		go func() {
-			if err := email.SendPaymentReminderEmail(u.Email, u.Username); err != nil {
-				log.Printf("❌ Failed to send payment reminder email: %v", err)
-			}
-			if err := email.SendInvoiceEmail(u.Email, u.Username, lastPayment.Amount, ref); err != nil {
-				log.Printf("❌ Failed to send invoice email: %v", err)
-			}
-		}()
 	}
 
 	return nil
