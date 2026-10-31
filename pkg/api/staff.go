@@ -52,8 +52,7 @@ func staffErrorStatus(err error) int {
 	case errors.Is(err, services.ErrRoleNotAllowed), errors.Is(err, services.ErrInviteEmailMismatch):
 		return http.StatusForbidden
 	case errors.Is(err, services.ErrAlreadyMember), errors.Is(err, services.ErrAccountExists),
-		errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrLastOwner),
-		errors.Is(err, services.ErrAlreadyOwnsFarm):
+		errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrLastOwner):
 		return http.StatusConflict
 	case errors.Is(err, services.ErrInvalidRole), errors.Is(err, services.ErrInvalidEmail),
 		errors.Is(err, services.ErrWeakPassword), errors.Is(err, services.ErrInvalidFarmType):

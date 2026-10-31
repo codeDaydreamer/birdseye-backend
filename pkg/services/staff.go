@@ -37,7 +37,6 @@ var (
 	ErrMemberNotFound      = errors.New("staff member not found")
 	ErrLastOwner           = errors.New("a farm must keep at least one owner")
 	ErrInvalidFarmType     = errors.New("what you keep must be from layers, broilers, kienyeji, breeders, chicks")
-	ErrAlreadyOwnsFarm     = errors.New("you already own a farm")
 )
 
 // StaffMember is a farm member as shown on the staff page
@@ -471,8 +470,8 @@ func UpdateFarm(farmID uint, details FarmDetails) error {
 	return db.DB.Model(&models.Farm{}).Where("id = ?", farmID).Updates(updates).Error
 }
 
-// CreateOwnFarm sets up a farm for a user who doesn't own one (e.g. staff who now want their own).
-// One owned farm per user, so a new farm can't be used to start another free trial.
+// CreateOwnFarm sets up another farm owned by the user. Their first owned farm gets the free trial; any
+// later one starts unpaid.
 func CreateOwnFarm(userID uint, details FarmDetails) (*models.Farm, error) {
 	updates, err := details.farmUpdates()
 	if err != nil {
@@ -484,15 +483,21 @@ func CreateOwnFarm(userID uint, details FarmDetails) (*models.Farm, error) {
 		if err := tx.Model(&models.Farm{}).Where("owner_user_id = ?", userID).Count(&owned).Error; err != nil {
 			return err
 		}
-		if owned > 0 {
-			return ErrAlreadyOwnsFarm
-		}
 		var user models.User
 		if err := tx.First(&user, userID).Error; err != nil {
 			return err
 		}
 		if farm, err = models.CreateFarmForUser(tx, &user); err != nil {
 			return err
+		}
+		// Only a person's first farm gets the free trial (user decision 2026-10-31): later farms start unpaid
+		// and are activated in Billing, so new farms can't be used to keep trialling for free
+		if owned > 0 {
+			now := time.Now()
+			farm.TrialEndsAt, farm.PaymentStatus = now, "unpaid"
+			if err := tx.Model(farm).Updates(map[string]interface{}{"trial_ends_at": now, "payment_status": "unpaid"}).Error; err != nil {
+				return err
+			}
 		}
 		if len(updates) > 0 {
 			return tx.Model(farm).Updates(updates).Error
