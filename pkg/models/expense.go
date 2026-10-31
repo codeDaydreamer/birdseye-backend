@@ -10,6 +10,7 @@ type Expense struct {
 	FarmID          uint      `json:"farm_id" gorm:"index;not null"`   // tenant
 	CreatedByUserID uint      `json:"created_by_user_id" gorm:"index"` // staff member who logged this record
 	FlockID         *uint     `json:"flock_id" gorm:"index"`           // the batch it was for; nil = the whole farm
+	SupplierID      *uint     `json:"supplier_id" gorm:"index"`        // optional: who was paid
 	Date            time.Time `json:"date" gorm:"not null;type:date"`
 	Description     string    `json:"description" gorm:"type:varchar(255);not null"`
 	Amount          float64   `json:"amount" gorm:"not null"`

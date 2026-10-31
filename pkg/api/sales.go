@@ -97,6 +97,10 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
+	if !services.ContactOfKind(db.DB, &sale.CustomerID, farmID, models.ContactCustomer) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Customer not found"})
+		return
+	}
 
 	sale.ID = 0
 	sale.FarmID = farmID
@@ -133,6 +137,10 @@ func (h *SalesHandler) UpdateSale(c *gin.Context) {
 
 	if !optionalFlockInFarm(&sale.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+	if !services.ContactOfKind(db.DB, &sale.CustomerID, farmID, models.ContactCustomer) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Customer not found"})
 		return
 	}
 

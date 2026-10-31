@@ -12,6 +12,7 @@ type Sale struct {
 	FarmID          uint      `json:"farm_id" gorm:"index;not null"`   // tenant
 	CreatedByUserID uint      `json:"created_by_user_id" gorm:"index"` // staff member who logged this record
 	FlockID         *uint     `json:"flock_id" gorm:"index"`           // the batch it came from; nil = the whole farm (manure, feed...)
+	CustomerID      *uint     `json:"customer_id" gorm:"index"`        // optional: who bought
 	RefNo           string    `json:"ref_no" gorm:"type:varchar(50);unique;not null"`
 	Product         string    `json:"product" gorm:"type:varchar(100);not null"`
 	Category        string    `json:"category" gorm:"type:varchar(50);not null"`

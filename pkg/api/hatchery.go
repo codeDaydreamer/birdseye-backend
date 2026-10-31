@@ -232,7 +232,8 @@ func respond(c *gin.Context, body interface{}, err error, status int) {
 	}
 	switch {
 	case is(services.ErrIncubatorNotFound, services.ErrSettingNotFound, services.ErrBookingNotFound,
-		services.ErrFlockNotFound, services.ErrFeedNotFound, services.ErrWeighFound, services.ErrStockItem):
+		services.ErrFlockNotFound, services.ErrFeedNotFound, services.ErrWeighFound, services.ErrStockItem,
+		services.ErrContactNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.As(err, &noEggs), errors.As(err, &noBirds), errors.As(err, &noStock),
 		is(services.ErrIncubatorFull, services.ErrSettingDone, services.ErrSettingKept, services.ErrBookingDone):
@@ -240,7 +241,8 @@ func respond(c *gin.Context, body interface{}, err error, status int) {
 	case is(services.ErrIncubatorName, services.ErrSettingName, services.ErrSettingEggs, services.ErrSettingSource,
 		services.ErrSettingFlock, services.ErrCandleCounts, services.ErrHatchCounts, services.ErrCullCounts,
 		services.ErrHatchTarget, services.ErrBookingCustomer, services.ErrBookingQuantity, services.ErrSalePrice,
-		services.ErrFeedType, services.ErrFeedKg, services.ErrStockNoKg, services.ErrWeighSample, services.ErrWeighWeight,
+		services.ErrFeedType, services.ErrFeedKg, services.ErrStockNoKg, services.ErrContactName,
+		services.ErrContactKind, services.ErrInvalidPhone, services.ErrWeighSample, services.ErrWeighWeight,
 		services.ErrBadDate, services.ErrFlockName, services.ErrFlockBreed, services.ErrProductionType,
 		services.ErrSaleNeedsFlock, services.ErrSaleFlockMissing):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

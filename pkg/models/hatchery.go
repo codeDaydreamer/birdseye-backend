@@ -126,6 +126,7 @@ type FeedLog struct {
 	// Taken from stock: the item and how many of its units (kg / kg_per_unit) were used
 	InventoryItemID *uint     `json:"inventory_item_id"`
 	UnitsUsed       float64   `json:"units_used"`
+	StockCost       float64   `json:"stock_cost"` // value of the stock used (units x cost per unit at the time)
 	Notes           string    `json:"notes" gorm:"type:varchar(255)"`
 	CreatedAt       time.Time `json:"created_at"`
 }

@@ -271,6 +271,7 @@ func main() {
 		&models.ChickBooking{},
 		&models.FeedLog{},
 		&models.WeighIn{},
+		&models.Contact{},
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
@@ -321,6 +322,7 @@ func main() {
 	api.SetupEggProductionRoutes(router)
 	api.SetupFlockRoutes(router)
 	api.SetupHatcheryRoutes(router)
+	api.SetupContactRoutes(router)
 	api.SetupVaccinationRoutes(router)
 	api.SetupBillingRoutes(router)
 	api.SetupSubscriptionRoutes(router)

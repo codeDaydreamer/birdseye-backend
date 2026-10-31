@@ -2,15 +2,13 @@ package api
 
 import (
 	"birdseye-backend/pkg/db"
+	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
+	"birdseye-backend/pkg/services"
+	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
 	"strconv"
-"birdseye-backend/pkg/middlewares"
-	"github.com/gin-gonic/gin"
-	"birdseye-backend/pkg/services"
-	
-
 )
 
 // ExpenseHandler handles expense-related requests
@@ -33,8 +31,6 @@ func SetupExpenseRoutes(r *gin.Engine, expenseService *services.ExpenseService) 
 		expenseRoutes.PUT("/budget", handler.UpdateBudget)
 	}
 }
-
-
 
 // GetExpenses retrieves the farm's expenses
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
@@ -63,6 +59,10 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 
 	if !optionalFlockInFarm(&expense.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
+		return
+	}
+	if !services.ContactOfKind(db.DB, &expense.SupplierID, farmID, models.ContactSupplier) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Supplier not found"})
 		return
 	}
 
@@ -106,6 +106,10 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
+	if !services.ContactOfKind(db.DB, &expense.SupplierID, farmID, models.ContactSupplier) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Supplier not found"})
+		return
+	}
 
 	if err := h.Service.UpdateExpense(&expense); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update expense"})
@@ -131,7 +135,6 @@ func (h *ExpenseHandler) DeleteExpense(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Expense deleted successfully"})
 }
-
 
 func (h *ExpenseHandler) GetTotalBudget(c *gin.Context) {
 	log.Println("GET /expenses/budget called")
