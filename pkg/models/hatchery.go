@@ -123,8 +123,11 @@ type FeedLog struct {
 	Kg        float64   `json:"kg" gorm:"not null"`
 	Cost      float64   `json:"cost"`
 	ExpenseID *uint     `json:"expense_id"`
-	Notes     string    `json:"notes" gorm:"type:varchar(255)"`
-	CreatedAt time.Time `json:"created_at"`
+	// Taken from stock: the item and how many of its units (kg / kg_per_unit) were used
+	InventoryItemID *uint     `json:"inventory_item_id"`
+	UnitsUsed       float64   `json:"units_used"`
+	Notes           string    `json:"notes" gorm:"type:varchar(255)"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // WeighIn is the average weight of a sample of a batch's birds on a day

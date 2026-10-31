@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wcharczuk/go-chart/v2"
@@ -17,7 +19,7 @@ import (
 
 type InventorySummary struct {
 	ItemName  string
-	Quantity  int
+	Quantity  string
 	TotalCost string
 }
 
@@ -61,7 +63,7 @@ func GenerateInventoryReport(db *gorm.DB, farmID, userID uint, startDate, endDat
 
 		formattedInventory = append(formattedInventory, InventorySummary{
 			ItemName:  item.ItemName,
-			Quantity:  item.Quantity,
+			Quantity:  strings.TrimSpace(strconv.FormatFloat(item.Quantity, 'f', -1, 64) + " " + item.Unit),
 			TotalCost: formatCurrency(itemTotalCost),
 		})
 

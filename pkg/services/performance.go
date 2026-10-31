@@ -10,6 +10,7 @@ import (
 	"birdseye-backend/pkg/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -19,6 +20,8 @@ var (
 	ErrWeighSample  = errors.New("weigh at least 1 bird")
 	ErrWeighWeight  = errors.New("enter the average weight in grams")
 	ErrWeighFound   = errors.New("weigh-in not found")
+	ErrStockItem    = errors.New("stock item not found")
+	ErrStockNoKg    = errors.New("set how many kg one unit of this stock item holds first (in Inventory)")
 )
 
 // FeedLogs lists a batch's feed, newest first
@@ -28,7 +31,27 @@ func FeedLogs(db *gorm.DB, farmID, flockID uint) ([]models.FeedLog, error) {
 	return list, err
 }
 
-// AddFeed records feed given to a batch; a cost also files a Feed expense for the batch
+// NotEnoughStockError is returned when feed logged from stock needs more than is left
+type NotEnoughStockError struct {
+	Item string
+	Left float64
+	Unit string
+}
+
+func (e *NotEnoughStockError) Error() string {
+	unit := e.Unit
+	if unit == "" {
+		unit = "units"
+	}
+	return fmt.Sprintf("Only %s %s of %s left in stock", trimNum(e.Left), unit, e.Item)
+}
+
+func trimNum(f float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", f), "0"), ".")
+}
+
+// AddFeed records feed given to a batch. From a stock item, its units come out of stock; a cost also files a
+// Feed expense for the batch.
 func AddFeed(db *gorm.DB, farmID, userID, flockID uint, f *models.FeedLog) error {
 	if !models.FeedTypes[f.FeedType] {
 		return ErrFeedType
@@ -48,6 +71,28 @@ func AddFeed(db *gorm.DB, farmID, userID, flockID uint, f *models.FeedLog) error
 		var flock models.Flock
 		if err := tx.Select("id", "name").Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error; err != nil {
 			return ErrFlockNotFound
+		}
+		f.UnitsUsed = 0
+		if f.InventoryItemID != nil && *f.InventoryItemID != 0 {
+			var item models.InventoryItem
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ? AND farm_id = ?", *f.InventoryItemID, farmID).First(&item).Error; err != nil {
+				return ErrStockItem
+			}
+			if item.KgPerUnit <= 0 {
+				return ErrStockNoKg
+			}
+			f.UnitsUsed = f.Kg / item.KgPerUnit
+			if item.Quantity+1e-9 < f.UnitsUsed {
+				return &NotEnoughStockError{Item: item.ItemName, Left: item.Quantity, Unit: item.Unit}
+			}
+			if err := tx.Model(&item).Update("quantity", item.Quantity-f.UnitsUsed).Error; err != nil {
+				return err
+			}
+			item.Quantity -= f.UnitsUsed
+			broadcast.SendInventoryUpdate(farmID, "inventory_updated", item)
+		} else {
+			f.InventoryItemID = nil
 		}
 		if f.Cost > 0 {
 			expense := models.Expense{FarmID: farmID, FlockID: &flockID, CreatedByUserID: userID, Date: f.Date,
@@ -70,6 +115,17 @@ func DeleteFeed(db *gorm.DB, farmID, id uint) error {
 		return ErrFeedNotFound
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		// Feed taken from stock goes back
+		if f.InventoryItemID != nil && f.UnitsUsed > 0 {
+			if err := tx.Model(&models.InventoryItem{}).Where("id = ? AND farm_id = ?", *f.InventoryItemID, farmID).
+				Update("quantity", gorm.Expr("quantity + ?", f.UnitsUsed)).Error; err != nil {
+				return err
+			}
+			var item models.InventoryItem
+			if tx.First(&item, *f.InventoryItemID).Error == nil {
+				broadcast.SendInventoryUpdate(farmID, "inventory_updated", item)
+			}
+		}
 		if f.ExpenseID != nil {
 			if err := tx.Where("id = ? AND farm_id = ?", *f.ExpenseID, farmID).Delete(&models.Expense{}).Error; err != nil {
 				return err
@@ -121,10 +177,11 @@ type Performance struct {
 	AvgWeightG    float64  `json:"avg_weight_g"`   // latest weigh-in
 	WeighedAt     *string  `json:"weighed_at"`     // date of that weigh-in
 	LiveWeightKg  float64  `json:"live_weight_kg"` // avg weight x birds now
-	FCR           *float64 `json:"fcr"`            // kg feed per kg live weight (nil until weighed and fed)
+	ProducedKg    float64  `json:"produced_kg"`    // live weight now + weight of birds sold, culled or moved out
+	FCR           *float64 `json:"fcr"`            // kg feed per kg produced (nil until weighed and fed)
 	Costs         float64  `json:"costs"`          // the batch's expenses
 	Revenue       float64  `json:"revenue"`        // the batch's sales
-	CostPerKg     *float64 `json:"cost_per_kg"`    // costs per kg live weight
+	CostPerKg     *float64 `json:"cost_per_kg"`    // costs per kg produced
 	EggsLast7     int      `json:"eggs_last_7"`
 	LayingRate7   *float64 `json:"laying_rate_7"` // hen-day %: eggs in the last 7 days / (birds x 7)
 	EggsPerBird   float64  `json:"eggs_per_bird"` // all eggs collected / birds placed
@@ -147,18 +204,40 @@ func BatchPerformance(db *gorm.DB, farmID, flockID uint) (*Performance, error) {
 	p.Costs = scalar(db.Model(&models.Expense{}).Where("flock_id = ?", flockID), "SUM(amount)")
 	p.Revenue = scalar(db.Model(&models.Sale{}).Where("flock_id = ?", flockID), "SUM(amount)")
 
-	var last models.WeighIn
-	if err := db.Where("flock_id = ?", flockID).Order("date DESC, id DESC").First(&last).Error; err == nil {
+	var weighIns []models.WeighIn
+	db.Where("flock_id = ?", flockID).Order("date, id").Find(&weighIns)
+	if len(weighIns) > 0 {
+		last := weighIns[len(weighIns)-1]
 		p.AvgWeightG = last.AvgWeightG
 		day := last.Date.Format("2006-01-02")
 		p.WeighedAt = &day
 		p.LiveWeightKg = last.AvgWeightG / 1000 * float64(flock.BirdCount)
-		if p.FeedKg > 0 && p.LiveWeightKg > 0 {
-			fcr := p.FeedKg / p.LiveWeightKg
+
+		var moves []models.BirdMovement
+		db.Where("flock_id = ? AND type IN ?", flockID,
+			[]string{models.MoveSold, models.MoveCulled, models.MoveTransferOut}).Find(&moves)
+		meatKg := map[uint]float64{}
+		var saleIDs []uint
+		for _, m := range moves {
+			if m.SaleID != nil {
+				saleIDs = append(saleIDs, *m.SaleID)
+			}
+		}
+		if len(saleIDs) > 0 {
+			var meat []models.Sale
+			db.Where("id IN ? AND product_type = ?", saleIDs, "meat").Find(&meat)
+			for _, sale := range meat {
+				meatKg[sale.ID] = sale.WeightKg
+			}
+		}
+		p.ProducedKg = p.LiveWeightKg + WeightLeftKg(moves, weighIns, meatKg)
+
+		if p.FeedKg > 0 && p.ProducedKg > 0 {
+			fcr := p.FeedKg / p.ProducedKg
 			p.FCR = &fcr
 		}
-		if p.Costs > 0 && p.LiveWeightKg > 0 {
-			c := p.Costs / p.LiveWeightKg
+		if p.Costs > 0 && p.ProducedKg > 0 {
+			c := p.Costs / p.ProducedKg
 			p.CostPerKg = &c
 		}
 	}
@@ -176,4 +255,31 @@ func BatchPerformance(db *gorm.DB, farmID, flockID uint) (*Performance, error) {
 		p.FeedPerBirdKg = p.FeedKg / float64(flock.InitialBirdCount)
 	}
 	return p, nil
+}
+
+// WeightLeftKg is the weight of the birds that left the batch alive (sold, culled, moved out): meat sales by
+// their recorded kg, other birds at the latest weigh-in on or before the day they left (the first weigh-in
+// if they left before any). Birds that died are not counted, so mortality shows in the FCR as it should.
+func WeightLeftKg(moves []models.BirdMovement, weighIns []models.WeighIn, meatKg map[uint]float64) float64 {
+	if len(weighIns) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, m := range moves {
+		if m.SaleID != nil {
+			if kg, ok := meatKg[*m.SaleID]; ok {
+				total += kg
+				continue
+			}
+		}
+		avg := weighIns[0].AvgWeightG
+		for _, w := range weighIns { // sorted by date
+			if w.Date.After(m.Date) {
+				break
+			}
+			avg = w.AvgWeightG
+		}
+		total += avg / 1000 * float64(-m.Delta)
+	}
+	return total
 }

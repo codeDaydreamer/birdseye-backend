@@ -221,6 +221,7 @@ func respond(c *gin.Context, body interface{}, err error, status int) {
 	}
 	var noEggs *services.NotEnoughEggsError
 	var noBirds *services.NotEnoughBirdsError
+	var noStock *services.NotEnoughStockError
 	is := func(targets ...error) bool {
 		for _, t := range targets {
 			if errors.Is(err, t) {
@@ -231,15 +232,15 @@ func respond(c *gin.Context, body interface{}, err error, status int) {
 	}
 	switch {
 	case is(services.ErrIncubatorNotFound, services.ErrSettingNotFound, services.ErrBookingNotFound,
-		services.ErrFlockNotFound, services.ErrFeedNotFound, services.ErrWeighFound):
+		services.ErrFlockNotFound, services.ErrFeedNotFound, services.ErrWeighFound, services.ErrStockItem):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-	case errors.As(err, &noEggs), errors.As(err, &noBirds),
+	case errors.As(err, &noEggs), errors.As(err, &noBirds), errors.As(err, &noStock),
 		is(services.ErrIncubatorFull, services.ErrSettingDone, services.ErrSettingKept, services.ErrBookingDone):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case is(services.ErrIncubatorName, services.ErrSettingName, services.ErrSettingEggs, services.ErrSettingSource,
 		services.ErrSettingFlock, services.ErrCandleCounts, services.ErrHatchCounts, services.ErrCullCounts,
 		services.ErrHatchTarget, services.ErrBookingCustomer, services.ErrBookingQuantity, services.ErrSalePrice,
-		services.ErrFeedType, services.ErrFeedKg, services.ErrWeighSample, services.ErrWeighWeight,
+		services.ErrFeedType, services.ErrFeedKg, services.ErrStockNoKg, services.ErrWeighSample, services.ErrWeighWeight,
 		services.ErrBadDate, services.ErrFlockName, services.ErrFlockBreed, services.ErrProductionType,
 		services.ErrSaleNeedsFlock, services.ErrSaleFlockMissing):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

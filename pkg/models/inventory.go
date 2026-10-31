@@ -1,12 +1,14 @@
 package models
 
-// InventoryItem represents an item in the
-// InventoryItem represents an item in the inventory
+// InventoryItem is something the farm keeps in stock (feed, medicine, supplies). Feed items say how many kg one
+// unit holds, so feed logged from them comes out of stock.
 type InventoryItem struct {
 	ID           uint    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ItemName     string  `gorm:"type:varchar(255);not null" json:"item_name"`
-	Quantity     int     `gorm:"not null" json:"quantity"`
-	ReorderLevel int     `gorm:"not null" json:"reorder_level"`
+	Quantity     float64 `gorm:"not null" json:"quantity"`     // in Unit (fractions: part of a bag used)
+	Unit         string  `gorm:"type:varchar(16)" json:"unit"` // bag, kg, litre, dose, piece...
+	KgPerUnit    float64 `json:"kg_per_unit"`                  // feed: kg in one unit (e.g. 70 for a 70 kg bag)
+	ReorderLevel float64 `gorm:"not null" json:"reorder_level"`
 	CostPerUnit  float64 `gorm:"not null" json:"cost_per_unit"`
 	FarmID       uint    `json:"farm_id" gorm:"index;not null"` // tenant
 	FlockID      *uint   `gorm:"index" json:"flock_id"`         // the batch it's for; nil = the farm's general store
