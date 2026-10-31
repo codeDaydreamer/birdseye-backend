@@ -23,3 +23,13 @@ func flockInFarm(flockID, farmID uint) bool {
 func dbFirst(dest interface{}, id uint) error {
 	return db.DB.First(dest, id).Error
 }
+
+// optionalFlockInFarm treats a missing or 0 flock_id as "the whole farm" (setting it to nil) and otherwise
+// checks the flock belongs to the farm
+func optionalFlockInFarm(flockID **uint, farmID uint) bool {
+	if *flockID == nil || **flockID == 0 {
+		*flockID = nil
+		return true
+	}
+	return flockInFarm(**flockID, farmID)
+}

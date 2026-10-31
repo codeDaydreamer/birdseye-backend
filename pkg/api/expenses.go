@@ -61,7 +61,7 @@ func (h *ExpenseHandler) AddExpense(c *gin.Context) {
 		return
 	}
 
-	if !flockInFarm(expense.FlockID, farmID) {
+	if !optionalFlockInFarm(&expense.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
@@ -102,7 +102,7 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 	// The body can't move the expense to another record, farm or author
 	expense.ID, expense.FarmID = original.ID, original.FarmID
 	expense.CreatedByUserID, expense.CreatedAt = original.CreatedByUserID, original.CreatedAt
-	if expense.FlockID != original.FlockID && !flockInFarm(expense.FlockID, farmID) {
+	if !optionalFlockInFarm(&expense.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}

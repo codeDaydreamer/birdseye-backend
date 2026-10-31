@@ -18,10 +18,12 @@ import (
 
 type FlockSummary struct {
 	Name          string
+	Type          string
+	AgeWeeks      int
 	BirdCount     int
+	Deaths        int
+	Sold          int
 	MortalityRate float64
-	Revenue       string
-	Expenses      string
 }
 
 type FlockReportData struct {
@@ -72,10 +74,12 @@ func GenerateFlockReport(db *gorm.DB, farmID, userID uint, startDate, endDate ti
 		totalBirds += flock.BirdCount
 		flockSummaries = append(flockSummaries, FlockSummary{
 			Name:          flock.Name,
+			Type:          flock.ProductionType,
+			AgeWeeks:      flock.AgeWeeks,
 			BirdCount:     flock.BirdCount,
-			MortalityRate: flock.MortalityRate,
-			Revenue:       formatCurrency(flock.Revenue),
-			Expenses:      formatCurrency(flock.Expenses),
+			Deaths:        flock.Deaths,
+			Sold:          flock.Sold,
+			MortalityRate: math.Round(flock.MortalityRate*10) / 10,
 		})
 
 		totalMortalityRate += flock.MortalityRate

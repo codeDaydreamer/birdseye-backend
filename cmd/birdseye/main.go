@@ -265,6 +265,7 @@ func main() {
 		&models.FlocksFinancialData{},
 		&models.PushSubscription{},
 		&models.DeviceToken{},
+		&models.BirdMovement{},
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},

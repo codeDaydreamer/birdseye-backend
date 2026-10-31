@@ -2,221 +2,366 @@ package services
 
 import (
 	"errors"
-	"birdseye-backend/pkg/models"
-	"birdseye-backend/pkg/broadcast"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"fmt"
-
 	"log"
-
+	"strings"
 	"time"
+
+	"birdseye-backend/pkg/broadcast"
+	"birdseye-backend/pkg/models"
+
+	"gorm.io/gorm"
+)
+
+// ExpenseBirdsBought is the expense category a bought batch's purchase is filed under
+const ExpenseBirdsBought = "Chicks / birds bought"
+
+var (
+	ErrFlockName           = errors.New("give the batch a name")
+	ErrFlockBreed          = errors.New("choose a breed")
+	ErrProductionType      = errors.New("type must be layers, broilers, kienyeji, breeders or chicks")
+	ErrFlockSource         = errors.New("source must be bought or hatched")
+	ErrFlockBirds          = errors.New("a new batch needs at least 1 bird")
+	ErrFlockAge            = errors.New("age at placement can't be negative")
+	ErrFlockCost           = errors.New("cost per bird can't be negative")
+	ErrFlockPlacedInFuture = errors.New("the placement date can't be in the future")
+	ErrFlockStatus         = errors.New("status must be active or closed")
+	ErrBadDate             = errors.New("dates must look like 2026-10-31")
 )
 
 type FlockService struct {
-	DB                  *gorm.DB
-	EggProductionService *EggProductionService
-	SalesService        *SalesService
-	ExpenseService      *ExpenseService // ✅ Fixed Naming
+	DB             *gorm.DB
+	SalesService   *SalesService
+	ExpenseService *ExpenseService
 }
 
-// NewFlockService initializes a new service instance
-func NewFlockService(db *gorm.DB, eggService *EggProductionService, salesService *SalesService, expenseService *ExpenseService) *FlockService {
-	return &FlockService{
-		DB:                  db,
-		EggProductionService: eggService,
-		SalesService:        salesService,
-		ExpenseService:      expenseService, // ✅ Fixed Naming
+func NewFlockService(db *gorm.DB, salesService *SalesService, expenseService *ExpenseService) *FlockService {
+	return &FlockService{DB: db, SalesService: salesService, ExpenseService: expenseService}
+}
+
+// FlockInput is what the farmer fills in for a batch. Birds is only used when creating it: after that the
+// count changes through movements.
+type FlockInput struct {
+	Name               *string  `json:"name"`
+	Breed              *string  `json:"breed"`
+	ProductionType     *string  `json:"production_type"`
+	Source             *string  `json:"source"`
+	Supplier           *string  `json:"supplier"`
+	CostPerBird        *float64 `json:"cost_per_bird"`
+	PlacedAt           *string  `json:"placed_at"` // YYYY-MM-DD or RFC 3339
+	AgeAtPlacementDays *int     `json:"age_at_placement_days"`
+	Health             *float64 `json:"health"`
+	Status             *string  `json:"status"`
+	Birds              int      `json:"birds"`
+}
+
+// ParseDate reads a date sent as YYYY-MM-DD or an RFC 3339 timestamp
+func ParseDate(s string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
 	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, ErrBadDate
 }
 
+// apply copies the given fields onto the batch, checking each one
+func (in FlockInput) apply(f *models.Flock) error {
+	if in.Name != nil {
+		f.Name = strings.TrimSpace(*in.Name)
+	}
+	if in.Breed != nil {
+		f.Breed = strings.TrimSpace(*in.Breed)
+	}
+	if in.ProductionType != nil {
+		f.ProductionType = *in.ProductionType
+	}
+	if in.Source != nil {
+		f.Source = *in.Source
+	}
+	if in.Supplier != nil {
+		f.Supplier = strings.TrimSpace(*in.Supplier)
+	}
+	if in.CostPerBird != nil {
+		f.CostPerBird = *in.CostPerBird
+	}
+	if in.PlacedAt != nil {
+		t, err := ParseDate(*in.PlacedAt)
+		if err != nil {
+			return err
+		}
+		f.PlacedAt = t
+	}
+	if in.AgeAtPlacementDays != nil {
+		f.AgeAtPlacementDays = *in.AgeAtPlacementDays
+	}
+	if in.Health != nil {
+		f.Health = *in.Health
+	}
+	if in.Status != nil && *in.Status != f.Status {
+		switch *in.Status {
+		case models.FlockClosed:
+			now := time.Now()
+			f.ClosedAt = &now
+		case models.FlockActive:
+			f.ClosedAt = nil
+		default:
+			return ErrFlockStatus
+		}
+		f.Status = *in.Status
+	}
 
-// GetFlocksByFarm retrieves flock records for a specific farm
+	switch {
+	case f.Name == "":
+		return ErrFlockName
+	case f.Breed == "":
+		return ErrFlockBreed
+	case !models.ProductionTypes[f.ProductionType]:
+		return ErrProductionType
+	case f.Source != models.SourceBought && f.Source != models.SourceHatched:
+		return ErrFlockSource
+	case f.AgeAtPlacementDays < 0:
+		return ErrFlockAge
+	case f.CostPerBird < 0:
+		return ErrFlockCost
+	case f.PlacedAt.After(time.Now()):
+		return ErrFlockPlacedInFuture
+	}
+	return nil
+}
+
+// GetFlocksByFarm lists the farm's batches
 func (s *FlockService) GetFlocksByFarm(farmID uint) ([]models.Flock, error) {
 	var flocks []models.Flock
-	err := s.DB.Where("farm_id = ?", farmID).Find(&flocks).Error
+	err := s.DB.Where("farm_id = ?", farmID).Order("status, placed_at DESC").Find(&flocks).Error
 	return flocks, err
 }
 
-// GetFlockByID retrieves a single flock by ID within a farm
+// GetFlockByID loads one of the farm's batches
 func (s *FlockService) GetFlockByID(flockID, farmID uint) (*models.Flock, error) {
 	var flock models.Flock
-	err := s.DB.Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error
-	if err != nil {
-		return nil, errors.New("flock not found")
+	if err := s.DB.Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error; err != nil {
+		return nil, ErrFlockNotFound
 	}
 	return &flock, nil
 }
-func (s *FlockService) AddFlock(flock *models.Flock) error {
-    fmt.Printf("Adding new flock: %+v\n", flock)
 
-    // Define date range for financial calculations (current month)
-    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
-    end := start.AddDate(0, 1, -1) // Last day of the month
-
-    // Compute initial metrics before saving
-    s.CalculateFlockMetrics(flock, start, end)
-    fmt.Printf("Metrics after calculation: %+v\n", flock)
-
-    // Save to database
-    if err := s.DB.Omit(clause.Associations).Create(flock).Error; err != nil {
-        fmt.Printf("Error creating flock: %v\n", err)
-        return err
-    }
-
-    fmt.Printf("Flock successfully added with ID %d\n", flock.ID)
-    
-    // Send real-time update to the farm
-    broadcast.SendFlockUpdate(flock.FarmID, "flock_added", *flock)
-    return nil
-}
-
-func (s *FlockService) UpdateFlock(flock *models.Flock) error {
-    log.Printf("📢 UpdateFlock called for Flock ID: %d\n", flock.ID)
-
-    // Define date range for financial calculations (current month)
-    start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
-    end := start.AddDate(0, 1, -1) // Last day of the month
-
-    s.CalculateFlockMetrics(flock, start, end)
-
-    if err := s.DB.Omit(clause.Associations).Save(flock).Error; err != nil {
-        log.Printf("❌ Error saving flock ID %d: %v\n", flock.ID, err)
-        return err
-    }
-    
-    // Send real-time update to the farm
-    broadcast.SendFlockUpdate(flock.FarmID, "flock_updated", *flock)
-    return nil
-}
-
-func (s *FlockService) DeleteFlock(flockID, farmID uint) error {
-    var flock models.Flock
-    if err := s.DB.Where("id = ? AND farm_id = ?", flockID, farmID).First(&flock).Error; err != nil {
-        return errors.New("flock not found")
-    }
-
-    if err := s.DB.Delete(&flock).Error; err != nil {
-        return err
-    }
-
-    // Send real-time update to the farm
-    broadcast.SendFlockUpdate(farmID, "flock_deleted", flockID)
-    return nil
-}
-
-
-func (s *FlockService) CalculateFlockMetrics(flock *models.Flock, start, end time.Time) {
-    log.Printf("Calculating metrics for Flock ID %d...", flock.ID)
-
-    s.CalculateMortalityRate(flock)
-    s.CalculateRevenueAndExpenses(flock, start, end) // ✅ Now includes date range
- 
-
-    log.Printf("Metrics before saving: %+v\n", flock)
-
-    err := s.DB.Model(&models.Flock{}).Where("id = ?", flock.ID).
-        Select("*").Updates(map[string]interface{}{
-        "mortality_rate":         flock.MortalityRate,
-        "feed_intake":            flock.FeedIntake,
-        "revenue":                flock.Revenue,
-        "expenses":               flock.Expenses,
-        "health":                 flock.Health,
-        
-    }).Error
-
-    if err != nil {
-        log.Printf("❌ Error updating flock metrics for flock ID %d: %v\n", flock.ID, err)
-    } else {
-        log.Printf("✅ Successfully updated flock metrics for Flock ID %d\n", flock.ID)
-    }
-}
-
-
-
-
-// 🔹 Mortality rate calculation (Stores in DB)
-func (s *FlockService) CalculateMortalityRate(flock *models.Flock) {
-	// Ensure InitialBirdCount is greater than zero to avoid division by zero
-	if flock.InitialBirdCount > 0 {
-		// Calculate total deaths using the difference between InitialBirdCount and current BirdCount
-		totalDeaths := flock.InitialBirdCount - flock.BirdCount
-		flock.MortalityRate = (float64(totalDeaths) / float64(flock.InitialBirdCount)) * 100
-	} else {
-		flock.MortalityRate = 0
+// CreateFlock starts a batch: the batch, its "placed" movement and, for bought birds with a price, the
+// purchase expense, all in one transaction
+func (s *FlockService) CreateFlock(farmID, userID uint, in FlockInput) (*models.Flock, error) {
+	flock := models.Flock{
+		FarmID: farmID, ProductionType: models.ProductionLayers, Source: models.SourceBought,
+		Status: models.FlockActive, PlacedAt: time.Now(), Health: 100,
+	}
+	if err := in.apply(&flock); err != nil {
+		return nil, err
+	}
+	flock.Status, flock.ClosedAt = models.FlockActive, nil
+	if in.Birds < 1 {
+		return nil, ErrFlockBirds
+	}
+	if err := CheckFlockLimit(farmID); err != nil {
+		return nil, err
+	}
+	if err := CheckBirdLimit(farmID, in.Birds, 0); err != nil {
+		return nil, err
 	}
 
-	fmt.Printf("Flock ID %d - Mortality Rate Calculated: %.2f%% (Initial Count: %d, Current Count: %d)\n",
-		flock.ID, flock.MortalityRate, flock.InitialBirdCount, flock.BirdCount)
-
-	// 🔥 Save updated mortality rate in the database
-	err := s.DB.Model(&models.Flock{}).
-		Where("id = ?", flock.ID).
-		Update("mortality_rate", flock.MortalityRate).Error
-
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&flock).Error; err != nil {
+			return err
+		}
+		placed := models.BirdMovement{FarmID: farmID, FlockID: flock.ID, Type: models.MovePlaced,
+			Delta: in.Birds, Date: flock.PlacedAt, CreatedByUserID: userID}
+		if err := ApplyMovement(tx, &placed); err != nil {
+			return err
+		}
+		if flock.Source == models.SourceBought && flock.CostPerBird > 0 {
+			desc := fmt.Sprintf("%d birds for %s", in.Birds, flock.Name)
+			if flock.Supplier != "" {
+				desc += " from " + flock.Supplier
+			}
+			expense := models.Expense{FarmID: farmID, FlockID: &flock.ID, CreatedByUserID: userID,
+				Date: flock.PlacedAt, Description: desc, Amount: flock.CostPerBird * float64(in.Birds),
+				Category: ExpenseBirdsBought}
+			if err := tx.Create(&expense).Error; err != nil {
+				return err
+			}
+			broadcast.SendExpenseUpdate(farmID, "expense_added", expense)
+		}
+		return nil
+	})
 	if err != nil {
-		fmt.Printf("❌ Error updating mortality rate for flock ID %d: %v\n", flock.ID, err)
-	} else {
-		fmt.Printf("✅ Successfully stored mortality rate for flock ID %d\n", flock.ID)
+		return nil, err
 	}
+	created, err := s.GetFlockByID(flock.ID, farmID)
+	if err != nil {
+		return nil, err
+	}
+	broadcast.SendFlockUpdate(farmID, "flock_added", *created)
+	return created, nil
 }
 
-
-
-
-func (s *FlockService) CalculateRevenueAndExpenses(flock *models.Flock, start, end time.Time) {
-    var totalRevenue, totalEggSales, totalExpenses float64
-
-    // Fetch sales within the specified date range
-    sales, err := s.SalesService.GetSalesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
-    if err != nil {
-        fmt.Println("Error fetching flock sales:", err)
-        return
-    }
-
-    // Filter and sum revenue from egg sales
-    for _, sale := range sales {
-        if sale.Category == "Egg Sales" {
-            totalEggSales += sale.Amount
-        }
-        totalRevenue += sale.Amount
-    }
-
-    // Fetch expenses within the specified date range
-    expenses, err := s.ExpenseService.GetExpensesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
-    if err != nil {
-        fmt.Println("Error fetching flock expenses:", err)
-        return
-    }
-
-    // Sum up all expenses
-    for _, expense := range expenses {
-        totalExpenses += expense.Amount
-    }
-
-    // Compute net revenue (profit/loss)
-    netRevenue := totalRevenue - totalExpenses
-
-    // Store financial data in a separate table
-	financialData := models.FlocksFinancialData{
-		FlockID:    flock.ID,
-		FarmID:     flock.FarmID,
-		Month:      int(start.Month()),  // Convert time.Month to int
-		Year:       start.Year(),
-		Revenue:    totalRevenue,
-		EggSales:   totalEggSales,
-		Expenses:   totalExpenses,
-		NetRevenue: netRevenue,
+// UpdateFlock changes a batch's details. Bird counts aren't editable: they change through movements.
+func (s *FlockService) UpdateFlock(farmID, flockID uint, in FlockInput) (*models.Flock, error) {
+	flock, err := s.GetFlockByID(flockID, farmID)
+	if err != nil {
+		return nil, err
 	}
-	
-
-    // Upsert into the database
-    if err := s.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?", flock.ID, flock.FarmID, start.Month(), start.Year()).
-        Assign(financialData).FirstOrCreate(&financialData).Error; err != nil {
-        fmt.Println("Error updating flock financial data:", err)
-    }
-
-    fmt.Printf("Flock ID %d - Revenue: %.2f, Egg Sales: %.2f, Expenses: %.2f, Net Revenue: %.2f for %s %d\n",
-        flock.ID, totalRevenue, totalEggSales, totalExpenses, netRevenue, start.Month().String(), start.Year())
+	if err := in.apply(flock); err != nil {
+		return nil, err
+	}
+	err = s.DB.Model(flock).Select("name", "breed", "production_type", "source", "supplier", "cost_per_bird",
+		"placed_at", "age_at_placement_days", "health", "status", "closed_at").Updates(flock).Error
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.GetFlockByID(flockID, farmID)
+	if err != nil {
+		return nil, err
+	}
+	broadcast.SendFlockUpdate(farmID, "flock_updated", *updated)
+	return updated, nil
 }
 
+// DeleteFlock removes a batch and its movement log
+func (s *FlockService) DeleteFlock(flockID, farmID uint) error {
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		res := tx.Where("id = ? AND farm_id = ?", flockID, farmID).Delete(&models.Flock{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrFlockNotFound
+		}
+		return tx.Where("flock_id = ?", flockID).Delete(&models.BirdMovement{}).Error
+	})
+	if err != nil {
+		return err
+	}
+	broadcast.SendFlockUpdate(farmID, "flock_deleted", flockID)
+	return nil
+}
+
+// GetMovements lists a batch's movement log, newest first
+func (s *FlockService) GetMovements(flockID, farmID uint) ([]models.BirdMovement, error) {
+	if _, err := s.GetFlockByID(flockID, farmID); err != nil {
+		return nil, err
+	}
+	moves := []models.BirdMovement{}
+	err := s.DB.Where("flock_id = ? AND farm_id = ?", flockID, farmID).
+		Order("date DESC, id DESC").Find(&moves).Error
+	return moves, err
+}
+
+// MovementInput is a death, cull, recount or transfer the farmer records
+type MovementInput struct {
+	Type      string `json:"type"` // died | culled | adjust | transfer
+	Quantity  int    `json:"quantity"`
+	Date      string `json:"date"`
+	Cause     string `json:"cause"`
+	Notes     string `json:"notes"`
+	ToFlockID uint   `json:"to_flock_id"`
+}
+
+// RecordMovement applies a farmer's movement to a batch. For adjust, quantity is the change (+ or -).
+func (s *FlockService) RecordMovement(farmID, userID, flockID uint, in MovementInput) error {
+	date := time.Now()
+	if in.Date != "" {
+		d, err := ParseDate(in.Date)
+		if err != nil {
+			return err
+		}
+		date = d
+	}
+	if in.Quantity == 0 || (in.Type != models.MoveAdjust && in.Quantity < 0) {
+		return ErrInvalidQuantity
+	}
+	notes := strings.TrimSpace(in.Notes)
+	if len(notes) > 255 {
+		notes = notes[:255]
+	}
+
+	affected := []uint{flockID}
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		m := models.BirdMovement{FarmID: farmID, FlockID: flockID, Date: date, Notes: notes,
+			CreatedByUserID: userID}
+		switch in.Type {
+		case models.MoveDied:
+			cause := in.Cause
+			if cause == "" {
+				cause = "unknown"
+			}
+			if !models.DeathCauses[cause] {
+				return ErrInvalidCause
+			}
+			m.Type, m.Delta, m.Cause = models.MoveDied, -in.Quantity, cause
+		case models.MoveCulled:
+			m.Type, m.Delta = models.MoveCulled, -in.Quantity
+		case models.MoveAdjust:
+			m.Type, m.Delta = models.MoveAdjust, in.Quantity
+		case "transfer":
+			affected = append(affected, in.ToFlockID)
+			return TransferBirds(tx, farmID, userID, flockID, in.ToFlockID, in.Quantity, date, notes)
+		default:
+			return ErrInvalidMovement
+		}
+		return ApplyMovement(tx, &m)
+	})
+	if err != nil {
+		return err
+	}
+	BroadcastFlocks(s.DB, farmID, affected...)
+	return nil
+}
+
+// UndoMovement deletes a death, cull, recount or transfer
+func (s *FlockService) UndoMovement(farmID, movementID uint) error {
+	var affected []uint
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		affected, err = DeleteMovement(tx, farmID, movementID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	BroadcastFlocks(s.DB, farmID, affected...)
+	return nil
+}
+
+// RefreshFinancials rewrites the batch's row in flocks_financial_data for the current month (read by
+// /flock-financial)
+func (s *FlockService) RefreshFinancials(flock *models.Flock) {
+	start := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, -1)
+	var revenue, eggSales, expenses float64
+
+	sales, err := s.SalesService.GetSalesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
+	if err != nil {
+		log.Printf("Financials: loading sales of flock %d: %v", flock.ID, err)
+		return
+	}
+	for _, sale := range sales {
+		if sale.Category == "Egg Sales" {
+			eggSales += sale.Amount
+		}
+		revenue += sale.Amount
+	}
+	rows, err := s.ExpenseService.GetExpensesByFlockAndPeriod(flock.ID, flock.FarmID, start, end)
+	if err != nil {
+		log.Printf("Financials: loading expenses of flock %d: %v", flock.ID, err)
+		return
+	}
+	for _, e := range rows {
+		expenses += e.Amount
+	}
+
+	data := models.FlocksFinancialData{FlockID: flock.ID, FarmID: flock.FarmID, Month: int(start.Month()),
+		Year: start.Year(), Revenue: revenue, EggSales: eggSales, Expenses: expenses, NetRevenue: revenue - expenses}
+	if err := s.DB.Where("flock_id = ? AND farm_id = ? AND month = ? AND year = ?", flock.ID, flock.FarmID,
+		start.Month(), start.Year()).Assign(data).FirstOrCreate(&data).Error; err != nil {
+		log.Printf("Financials: saving flock %d: %v", flock.ID, err)
+	}
+}

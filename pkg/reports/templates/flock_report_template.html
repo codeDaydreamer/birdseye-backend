@@ -131,18 +131,24 @@
             <thead>
                 <tr>
                     <th>Flock Name</th>
+                    <th>Type</th>
+                    <th>Age (weeks)</th>
                     <th>Bird Count</th>
+                    <th>Deaths</th>
+                    <th>Sold</th>
                     <th>Mortality Rate (%)</th>
-
                 </tr>
             </thead>
             <tbody>
                 {{ range .Flocks }}
                 <tr>
                     <td>{{ .Name }}</td>
+                    <td>{{ .Type }}</td>
+                    <td>{{ .AgeWeeks }}</td>
                     <td>{{ .BirdCount }}</td>
+                    <td>{{ .Deaths }}</td>
+                    <td>{{ .Sold }}</td>
                     <td>{{ .MortalityRate }}%</td>
-
                 </tr>
                 {{ end }}
             </tbody>
