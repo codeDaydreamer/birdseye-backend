@@ -104,7 +104,7 @@ func (h *StaffHandler) UpdateFarm(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"farm_id": farmID, "name": farm.Name, "location": farm.Location,
-		"farm_type": farm.FarmType, "setup_complete": farm.SetupCompletedAt != nil})
+		"enterprises": services.SplitEnterprises(farm.Enterprises), "setup_complete": farm.SetupCompletedAt != nil})
 }
 
 // CreateFarm starts a new farm owned by the signed-in user, who must not own one already

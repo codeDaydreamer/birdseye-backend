@@ -1,9 +1,11 @@
 package api
 
 import (
+	"errors"
+
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
 	"log"
 	"net/http"
 	"strconv"
@@ -29,6 +31,26 @@ func SetupSalesRoutes(r *gin.Engine) {
 		salesRoutes.POST("/", handler.AddSale)
 		salesRoutes.PUT("/:id", handler.UpdateSale)
 		salesRoutes.DELETE("/:id", handler.DeleteSale)
+	}
+}
+
+// respondSaleError maps sale errors: bad input 400, not enough stock 409, unknown errors 500 (logged)
+func respondSaleError(c *gin.Context, err error) {
+	var noEggs *services.NotEnoughEggsError
+	var noBirds *services.NotEnoughBirdsError
+	switch {
+	case errors.Is(err, services.ErrSaleNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found"})
+	case errors.As(err, &noEggs), errors.As(err, &noBirds):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrSaleProduct), errors.Is(err, services.ErrSaleUnit),
+		errors.Is(err, services.ErrSaleQuantity), errors.Is(err, services.ErrSalePrice),
+		errors.Is(err, services.ErrSaleNeedsFlock), errors.Is(err, services.ErrSaleMeatWeight),
+		errors.Is(err, services.ErrSaleMeatBirds), errors.Is(err, services.ErrSaleFlockMissing):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		log.Printf("Sale request failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong"})
 	}
 }
 
@@ -71,7 +93,7 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 		return
 	}
 
-	if !flockInFarm(sale.FlockID, farmID) {
+	if !optionalFlockInFarm(&sale.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
@@ -80,7 +102,7 @@ func (h *SalesHandler) AddSale(c *gin.Context) {
 	sale.FarmID = farmID
 	sale.CreatedByUserID = userID
 	if err := h.Service.AddSale(&sale); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sale"})
+		respondSaleError(c, err)
 		return
 	}
 
@@ -109,13 +131,13 @@ func (h *SalesHandler) UpdateSale(c *gin.Context) {
 	sale.CreatedByUserID = original.CreatedByUserID
 	sale.RefNo, sale.CreatedAt = original.RefNo, original.CreatedAt
 
-	if sale.FlockID != original.FlockID && !flockInFarm(sale.FlockID, farmID) {
+	if !optionalFlockInFarm(&sale.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
 
 	if err := h.Service.UpdateSale(&sale); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sale"})
+		respondSaleError(c, err)
 		return
 	}
 
@@ -133,7 +155,7 @@ func (h *SalesHandler) DeleteSale(c *gin.Context) {
 	}
 
 	if err := h.Service.DeleteSale(uint(id), farmID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Sale not found or unauthorized"})
+		respondSaleError(c, err)
 		return
 	}
 

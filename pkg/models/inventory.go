@@ -1,25 +1,24 @@
 package models
 
-// InventoryItem represents an item in the 
+// InventoryItem represents an item in the
 // InventoryItem represents an item in the inventory
 type InventoryItem struct {
-    ID          uint    `gorm:"primaryKey;autoIncrement" json:"id"`
-    ItemName    string  `gorm:"type:varchar(255);not null" json:"item_name"`
-    Quantity    int     `gorm:"not null" json:"quantity"`
-    ReorderLevel int    `gorm:"not null" json:"reorder_level"`
-    CostPerUnit float64 `gorm:"not null" json:"cost_per_unit"`
-    FarmID uint `json:"farm_id" gorm:"index;not null"` // tenant
-    FlockID     uint    `gorm:"not null;index" json:"flock_id"` // Foreign key reference to Flock
+	ID           uint    `gorm:"primaryKey;autoIncrement" json:"id"`
+	ItemName     string  `gorm:"type:varchar(255);not null" json:"item_name"`
+	Quantity     int     `gorm:"not null" json:"quantity"`
+	ReorderLevel int     `gorm:"not null" json:"reorder_level"`
+	CostPerUnit  float64 `gorm:"not null" json:"cost_per_unit"`
+	FarmID       uint    `json:"farm_id" gorm:"index;not null"` // tenant
+	FlockID      *uint   `gorm:"index" json:"flock_id"`         // the batch it's for; nil = the farm's general store
 
-    // Relationship
-    Flock       *Flock  `gorm:"foreignKey:FlockID;constraint:OnDelete:CASCADE;" json:"flock"` // Define relationship with Flock
+	// Relationship
+	Flock *Flock `gorm:"foreignKey:FlockID;constraint:OnDelete:CASCADE;" json:"flock"` // Define relationship with Flock
 
-    // Dynamic field to hold flock name in the response
-    FlockName   string  `json:"flock_name,omitempty"` // This will not be saved to the database, just for the API response
+	// Dynamic field to hold flock name in the response
+	FlockName string `json:"flock_name,omitempty"` // This will not be saved to the database, just for the API response
 }
-
 
 // TableName overrides the default table name
 func (InventoryItem) TableName() string {
-    return "inventory_items"
+	return "inventory_items"
 }

@@ -2,8 +2,8 @@ package api
 
 import (
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
 	"log"
 	"net/http"
 	"strconv"
@@ -30,6 +30,7 @@ func SetupInventoryRoutes(r *gin.Engine) {
 		inventoryRoutes.DELETE("/:id", handler.DeleteInventoryItem)
 	}
 }
+
 // GetInventory retrieves the farm's inventory records, including flock names
 func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	farmID, _ := farmContext(c)
@@ -61,7 +62,7 @@ func (h *InventoryHandler) AddInventoryItem(c *gin.Context) {
 		return
 	}
 
-	if !flockInFarm(item.FlockID, farmID) {
+	if !optionalFlockInFarm(&item.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}
@@ -97,7 +98,7 @@ func (h *InventoryHandler) UpdateInventoryItem(c *gin.Context) {
 
 	// The body can't move the item to another record or farm
 	item.ID, item.FarmID = original.ID, original.FarmID
-	if item.FlockID != original.FlockID && !flockInFarm(item.FlockID, farmID) {
+	if !optionalFlockInFarm(&item.FlockID, farmID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Flock not found"})
 		return
 	}

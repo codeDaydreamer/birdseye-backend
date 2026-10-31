@@ -25,7 +25,7 @@ type Farm struct {
 
 	// Filled in by the owner's setup wizard; SetupCompletedAt stays nil until they finish or skip it
 	Location         string     `gorm:"type:varchar(120)" json:"location"`
-	FarmType         string     `gorm:"type:varchar(20)" json:"farm_type"` // layers | broilers | kienyeji | mixed
+	Enterprises      string     `gorm:"type:varchar(80)" json:"enterprises"` // comma list of production types kept
 	SetupCompletedAt *time.Time `json:"setup_completed_at"`
 
 	// Current plan and what's been paid for; a successful payment moves PaidUntil forward
@@ -63,9 +63,6 @@ type FarmInvite struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
-// FarmTypes are the kinds of poultry operation a farm can describe itself as
-var FarmTypes = map[string]bool{"layers": true, "broilers": true, "kienyeji": true, "mixed": true}
 
 // CreateFarmForUser creates a new Farm owned by the user, plus their owner FarmMember row
 func CreateFarmForUser(tx *gorm.DB, user *User) (*Farm, error) {

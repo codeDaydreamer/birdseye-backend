@@ -2,8 +2,8 @@ package api
 
 import (
 	"birdseye-backend/pkg/db"
-	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/middlewares"
+	"birdseye-backend/pkg/models"
 	"log"
 	"net/http"
 	"strconv"
@@ -25,6 +25,7 @@ func SetupEggProductionRoutes(r *gin.Engine) {
 	routes := r.Group("/egg-productions").Use(middlewares.FarmAuth())
 	{
 		routes.GET("/", handler.GetEggProduction)
+		routes.GET("/stock", handler.GetEggStock)
 		routes.POST("/", handler.AddEggProduction)
 		routes.PUT("/:id", handler.UpdateEggProduction)
 		routes.DELETE("/:id", handler.DeleteEggProduction)
@@ -126,4 +127,16 @@ func (h *EggProductionHandler) DeleteEggProduction(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Record deleted successfully"})
+}
+
+// GetEggStock reports eggs collected, lost to adjustments, sold and on hand, per batch and for the farm
+func (h *EggProductionHandler) GetEggStock(c *gin.Context) {
+	farmID, _ := farmContext(c)
+	flocks, err := services.EggStockByFlock(db.DB, farmID, 0)
+	if err != nil {
+		log.Printf("Egg stock failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"farm": services.FarmEggStock(flocks), "flocks": flocks})
 }

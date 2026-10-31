@@ -36,7 +36,7 @@ var (
 	ErrWeakPassword        = errors.New("password must be at least 8 characters")
 	ErrMemberNotFound      = errors.New("staff member not found")
 	ErrLastOwner           = errors.New("a farm must keep at least one owner")
-	ErrInvalidFarmType     = errors.New("farm type must be layers, broilers, kienyeji or mixed")
+	ErrInvalidFarmType     = errors.New("what you keep must be from layers, broilers, kienyeji, breeders, chicks")
 	ErrAlreadyOwnsFarm     = errors.New("you already own a farm")
 )
 
@@ -376,33 +376,48 @@ func RevokeInvite(farmID, inviteID uint) error {
 
 // FarmSummary is one of the user's farms, for the farm switcher
 type FarmSummary struct {
-	FarmID        uint   `json:"farm_id"`
-	Name          string `json:"name"`
-	Role          string `json:"role"`
-	Location      string `json:"location"`
-	FarmType      string `json:"farm_type"`
-	SetupComplete bool   `json:"setup_complete"`
+	FarmID        uint     `json:"farm_id"`
+	Name          string   `json:"name"`
+	Role          string   `json:"role"`
+	Location      string   `json:"location"`
+	EnterpriseCSV string   `json:"-" gorm:"column:enterprises"`
+	Enterprises   []string `json:"enterprises" gorm:"-"`
+	SetupComplete bool     `json:"setup_complete"`
+}
+
+// SplitEnterprises turns the stored comma list into a list (never nil)
+func SplitEnterprises(csv string) []string {
+	list := []string{}
+	for _, e := range strings.Split(csv, ",") {
+		if e = strings.TrimSpace(e); e != "" {
+			list = append(list, e)
+		}
+	}
+	return list
 }
 
 // GetUserFarms lists the farms the user is an active member of
 func GetUserFarms(userID uint) ([]FarmSummary, error) {
 	farms := []FarmSummary{}
 	err := db.DB.Table("farm_members").
-		Select("farm_members.farm_id, farms.name, farm_members.role, farms.location, farms.farm_type, "+
+		Select("farm_members.farm_id, farms.name, farm_members.role, farms.location, farms.enterprises, "+
 			"farms.setup_completed_at IS NOT NULL AS setup_complete").
 		Joins("JOIN farms ON farms.id = farm_members.farm_id").
 		Where("farm_members.user_id = ? AND farm_members.status = ?", userID, "active").
 		Order("farm_members.farm_id").
 		Scan(&farms).Error
+	for i := range farms {
+		farms[i].Enterprises = SplitEnterprises(farms[i].EnterpriseCSV)
+	}
 	return farms, err
 }
 
 // FarmDetails is what an owner can change about their farm; nil fields are left as they are
 type FarmDetails struct {
-	Name          *string `json:"name"`
-	Location      *string `json:"location"`
-	FarmType      *string `json:"farm_type"`
-	SetupComplete *bool   `json:"setup_complete"`
+	Name          *string   `json:"name"`
+	Location      *string   `json:"location"`
+	Enterprises   *[]string `json:"enterprises"`
+	SetupComplete *bool     `json:"setup_complete"`
 }
 
 // farmUpdates validates the details and turns them into column updates
@@ -422,12 +437,20 @@ func (d FarmDetails) farmUpdates() (map[string]interface{}, error) {
 		}
 		updates["location"] = location
 	}
-	if d.FarmType != nil {
-		farmType := strings.ToLower(strings.TrimSpace(*d.FarmType))
-		if farmType != "" && !models.FarmTypes[farmType] {
-			return nil, ErrInvalidFarmType
+	if d.Enterprises != nil {
+		seen := map[string]bool{}
+		kept := []string{}
+		for _, e := range *d.Enterprises {
+			e = strings.ToLower(strings.TrimSpace(e))
+			if !models.ProductionTypes[e] {
+				return nil, ErrInvalidFarmType
+			}
+			if !seen[e] {
+				seen[e] = true
+				kept = append(kept, e)
+			}
 		}
-		updates["farm_type"] = farmType
+		updates["enterprises"] = strings.Join(kept, ",")
 	}
 	if d.SetupComplete != nil {
 		if *d.SetupComplete {
