@@ -25,6 +25,7 @@ var (
 	ErrSettingSource     = errors.New("source must be own or bought")
 	ErrSettingFlock      = errors.New("choose the batch the eggs came from")
 	ErrSettingDone       = errors.New("this setting has already hatched or been closed")
+	ErrSettingKept       = errors.New("a hatched or closed setting can't be deleted: its eggs were used")
 	ErrCandleCounts      = errors.New("clear and rotten eggs can't add up to more than the eggs set")
 	ErrHatchCounts       = errors.New("more chicks hatched than fertile eggs left")
 	ErrCullCounts        = errors.New("can't cull more chicks than hatched")
@@ -331,12 +332,16 @@ func (s *HatcheryService) CloseSetting(farmID, id uint) error {
 	return s.DB.Model(setting).Update("status", models.SettingClosed).Error
 }
 
-// DeleteSetting removes a setting (and the purchase expense of bought eggs). Chicks it hatched stay in
-// their batch.
+// DeleteSetting removes a setting entered by mistake (and the purchase expense of bought eggs). Only while
+// it's incubating: own eggs are subtracted from eggs on hand by their setting, so deleting a hatched or closed
+// one would bring eggs back that became chicks or were thrown away.
 func (s *HatcheryService) DeleteSetting(farmID, id uint) error {
 	setting, err := s.getSetting(s.DB, farmID, id)
 	if err != nil {
 		return err
+	}
+	if setting.Status != models.SettingIncubating {
+		return ErrSettingKept
 	}
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		if setting.ExpenseID != nil {

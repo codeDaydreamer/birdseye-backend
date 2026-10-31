@@ -234,7 +234,7 @@ func respond(c *gin.Context, body interface{}, err error, status int) {
 		services.ErrFlockNotFound, services.ErrFeedNotFound, services.ErrWeighFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.As(err, &noEggs), errors.As(err, &noBirds),
-		is(services.ErrIncubatorFull, services.ErrSettingDone, services.ErrBookingDone):
+		is(services.ErrIncubatorFull, services.ErrSettingDone, services.ErrSettingKept, services.ErrBookingDone):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case is(services.ErrIncubatorName, services.ErrSettingName, services.ErrSettingEggs, services.ErrSettingSource,
 		services.ErrSettingFlock, services.ErrCandleCounts, services.ErrHatchCounts, services.ErrCullCounts,
