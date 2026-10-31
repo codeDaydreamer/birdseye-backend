@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/services"
@@ -24,6 +25,7 @@ func SetupStaffRoutes(r *gin.Engine) {
 
 	// Farms the signed-in user belongs to, for picking which one to work in
 	r.GET("/farm/me", middlewares.UserAuth(), handler.GetMyFarms)
+	r.POST("/farm/new", middlewares.UserAuth(), handler.CreateFarm)
 
 	// Invite landing + acceptance: the token is the credential, sign-in is optional
 	r.GET("/farm/invite/:token", handler.GetInvite)
@@ -31,7 +33,7 @@ func SetupStaffRoutes(r *gin.Engine) {
 
 	farm := r.Group("/farm").Use(middlewares.FarmAuth())
 	{
-		farm.PUT("/", ownerOnly, handler.RenameFarm)
+		farm.PUT("/", ownerOnly, handler.UpdateFarm)
 		farm.GET("/staff", handler.ListStaff)
 		farm.POST("/staff/invite", ownerOrManager, handler.InviteStaff)
 		farm.PUT("/staff/:id/role", ownerOnly, handler.ChangeRole)
@@ -50,10 +52,11 @@ func staffErrorStatus(err error) int {
 	case errors.Is(err, services.ErrRoleNotAllowed), errors.Is(err, services.ErrInviteEmailMismatch):
 		return http.StatusForbidden
 	case errors.Is(err, services.ErrAlreadyMember), errors.Is(err, services.ErrAccountExists),
-		errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrLastOwner):
+		errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrLastOwner),
+		errors.Is(err, services.ErrAlreadyOwnsFarm):
 		return http.StatusConflict
 	case errors.Is(err, services.ErrInvalidRole), errors.Is(err, services.ErrInvalidEmail),
-		errors.Is(err, services.ErrWeakPassword):
+		errors.Is(err, services.ErrWeakPassword), errors.Is(err, services.ErrInvalidFarmType):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
@@ -83,21 +86,44 @@ func (h *StaffHandler) GetMyFarms(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"farms": farms})
 }
 
-// RenameFarm changes the farm's name
-func (h *StaffHandler) RenameFarm(c *gin.Context) {
+// UpdateFarm changes the farm's name, location, type, or marks its setup as done; omitted fields stay
+func (h *StaffHandler) UpdateFarm(c *gin.Context) {
 	farmID, _ := farmContext(c)
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req services.FarmDetails
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
-	if err := services.RenameFarm(farmID, req.Name); err != nil {
+	if err := services.UpdateFarm(farmID, req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"farm_id": farmID, "name": req.Name})
+	var farm models.Farm
+	if err := db.DB.Omit("Subscription", "BillingInfo").First(&farm, farmID).Error; err != nil {
+		respondStaffError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"farm_id": farmID, "name": farm.Name, "location": farm.Location,
+		"farm_type": farm.FarmType, "setup_complete": farm.SetupCompletedAt != nil})
+}
+
+// CreateFarm starts a new farm owned by the signed-in user, who must not own one already
+func (h *StaffHandler) CreateFarm(c *gin.Context) {
+	var req services.FarmDetails
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if req.Name == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "farm name is required"})
+		return
+	}
+	farm, err := services.CreateOwnFarm(c.GetUint("user_id"), req)
+	if err != nil {
+		respondStaffError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"farm_id": farm.ID, "name": farm.Name, "role": models.FarmRoleOwner})
 }
 
 // ListStaff returns the farm's members and pending invitations

@@ -36,6 +36,8 @@ var (
 	ErrWeakPassword        = errors.New("password must be at least 8 characters")
 	ErrMemberNotFound      = errors.New("staff member not found")
 	ErrLastOwner           = errors.New("a farm must keep at least one owner")
+	ErrInvalidFarmType     = errors.New("farm type must be layers, broilers, kienyeji or mixed")
+	ErrAlreadyOwnsFarm     = errors.New("you already own a farm")
 )
 
 // StaffMember is a farm member as shown on the staff page
@@ -374,16 +376,20 @@ func RevokeInvite(farmID, inviteID uint) error {
 
 // FarmSummary is one of the user's farms, for the farm switcher
 type FarmSummary struct {
-	FarmID uint   `json:"farm_id"`
-	Name   string `json:"name"`
-	Role   string `json:"role"`
+	FarmID        uint   `json:"farm_id"`
+	Name          string `json:"name"`
+	Role          string `json:"role"`
+	Location      string `json:"location"`
+	FarmType      string `json:"farm_type"`
+	SetupComplete bool   `json:"setup_complete"`
 }
 
 // GetUserFarms lists the farms the user is an active member of
 func GetUserFarms(userID uint) ([]FarmSummary, error) {
 	farms := []FarmSummary{}
 	err := db.DB.Table("farm_members").
-		Select("farm_members.farm_id, farms.name, farm_members.role").
+		Select("farm_members.farm_id, farms.name, farm_members.role, farms.location, farms.farm_type, "+
+			"farms.setup_completed_at IS NOT NULL AS setup_complete").
 		Joins("JOIN farms ON farms.id = farm_members.farm_id").
 		Where("farm_members.user_id = ? AND farm_members.status = ?", userID, "active").
 		Order("farm_members.farm_id").
@@ -391,11 +397,84 @@ func GetUserFarms(userID uint) ([]FarmSummary, error) {
 	return farms, err
 }
 
-// RenameFarm changes the farm's display name
-func RenameFarm(farmID uint, name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 100 {
-		return errors.New("farm name must be 1-100 characters")
+// FarmDetails is what an owner can change about their farm; nil fields are left as they are
+type FarmDetails struct {
+	Name          *string `json:"name"`
+	Location      *string `json:"location"`
+	FarmType      *string `json:"farm_type"`
+	SetupComplete *bool   `json:"setup_complete"`
+}
+
+// farmUpdates validates the details and turns them into column updates
+func (d FarmDetails) farmUpdates() (map[string]interface{}, error) {
+	updates := map[string]interface{}{}
+	if d.Name != nil {
+		name := strings.TrimSpace(*d.Name)
+		if name == "" || len(name) > 100 {
+			return nil, errors.New("farm name must be 1-100 characters")
+		}
+		updates["name"] = name
 	}
-	return db.DB.Model(&models.Farm{}).Where("id = ?", farmID).Update("name", name).Error
+	if d.Location != nil {
+		location := strings.TrimSpace(*d.Location)
+		if len(location) > 120 {
+			return nil, errors.New("location must be at most 120 characters")
+		}
+		updates["location"] = location
+	}
+	if d.FarmType != nil {
+		farmType := strings.ToLower(strings.TrimSpace(*d.FarmType))
+		if farmType != "" && !models.FarmTypes[farmType] {
+			return nil, ErrInvalidFarmType
+		}
+		updates["farm_type"] = farmType
+	}
+	if d.SetupComplete != nil {
+		if *d.SetupComplete {
+			updates["setup_completed_at"] = time.Now()
+		} else {
+			updates["setup_completed_at"] = nil
+		}
+	}
+	return updates, nil
+}
+
+// UpdateFarm changes the farm's name, location, type or setup state
+func UpdateFarm(farmID uint, details FarmDetails) error {
+	updates, err := details.farmUpdates()
+	if err != nil || len(updates) == 0 {
+		return err
+	}
+	return db.DB.Model(&models.Farm{}).Where("id = ?", farmID).Updates(updates).Error
+}
+
+// CreateOwnFarm sets up a farm for a user who doesn't own one (e.g. staff who now want their own).
+// One owned farm per user, so a new farm can't be used to start another free trial.
+func CreateOwnFarm(userID uint, details FarmDetails) (*models.Farm, error) {
+	updates, err := details.farmUpdates()
+	if err != nil {
+		return nil, err
+	}
+	var farm *models.Farm
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		var owned int64
+		if err := tx.Model(&models.Farm{}).Where("owner_user_id = ?", userID).Count(&owned).Error; err != nil {
+			return err
+		}
+		if owned > 0 {
+			return ErrAlreadyOwnsFarm
+		}
+		var user models.User
+		if err := tx.First(&user, userID).Error; err != nil {
+			return err
+		}
+		if farm, err = models.CreateFarmForUser(tx, &user); err != nil {
+			return err
+		}
+		if len(updates) > 0 {
+			return tx.Model(farm).Updates(updates).Error
+		}
+		return nil
+	})
+	return farm, err
 }

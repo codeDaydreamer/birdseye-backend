@@ -63,6 +63,44 @@ func loadVAPIDKeys() {
 	broadcast.PushToFarm = push.SendToFarm
 }
 
+// loadFCM enables push to the mobile app through Firebase, alongside Web Push. The service account comes from
+// FIREBASE_SERVICE_ACCOUNT_FILE (a path to the JSON key) or FIREBASE_SERVICE_ACCOUNT_JSON (its contents).
+func loadFCM() {
+	key := []byte(os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+	if path := os.Getenv("FIREBASE_SERVICE_ACCOUNT_FILE"); len(key) == 0 && path != "" {
+		var err error
+		if key, err = os.ReadFile(path); err != nil {
+			log.Printf("Warning: can't read FIREBASE_SERVICE_ACCOUNT_FILE: %v, mobile push disabled", err)
+			return
+		}
+	}
+	if len(key) == 0 {
+		log.Println("Warning: FIREBASE_SERVICE_ACCOUNT_FILE not set, mobile push disabled")
+		return
+	}
+	fcm, err := services.NewFCM(db.DB, key)
+	if err != nil {
+		log.Printf("Warning: %v, mobile push disabled", err)
+		return
+	}
+
+	// Send to phones as well as to whatever loadVAPIDKeys set up for browsers
+	webToUser, webToFarm := broadcast.PushToUser, broadcast.PushToFarm
+	broadcast.PushToUser = func(userID uint, title, body, url string) {
+		if webToUser != nil {
+			webToUser(userID, title, body, url)
+		}
+		fcm.SendToUser(userID, title, body, url)
+	}
+	broadcast.PushToFarm = func(farmID uint, title, body, url string) {
+		if webToFarm != nil {
+			webToFarm(farmID, title, body, url)
+		}
+		fcm.SendToFarm(farmID, title, body, url)
+	}
+	log.Println("Mobile push (Firebase Cloud Messaging) enabled")
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // ⚠️ Allow all origins for WebSocket
@@ -226,6 +264,7 @@ func main() {
 		&models.Report{},
 		&models.FlocksFinancialData{},
 		&models.PushSubscription{},
+		&models.DeviceToken{},
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
@@ -243,6 +282,7 @@ func main() {
 	
 	// Load VAPID keys (needs the DB for push subscriptions)
 	loadVAPIDKeys()
+	loadFCM()
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()
@@ -294,6 +334,8 @@ func main() {
 	router.GET("/wss", handleWebSocket)
 
 	router.POST("/api/push/subscribe", middlewares.UserAuth(), api.HandlePushSubscription)
+	router.POST("/push/device", middlewares.UserAuth(), api.HandleRegisterDevice)
+	router.DELETE("/push/device", middlewares.UserAuth(), api.HandleUnregisterDevice)
 
 
 	// Start WebSocket broadcasting
