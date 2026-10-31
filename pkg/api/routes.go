@@ -284,6 +284,13 @@ func handleUserRegistration(c *gin.Context) {
 		return
 	}
 
+	phone, err := services.NormalizePhone(user.PhoneNumber)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	user.PhoneNumber = phone
+
 	registeredUser, err := services.RegisterUser(&user)
 	if err != nil {
 		log.Printf("Error registering user: %v\n", err)
@@ -435,7 +442,13 @@ func handleUpdateProfile(c *gin.Context) {
 
 	log.Printf("Updating user profile with: %+v", updateRequest)
 
-	updatedUser, err := services.UpdateUserProfile(user.ID, updateRequest.Username, updateRequest.Email, updateRequest.PhoneNumber)
+	phone, err := services.NormalizePhone(updateRequest.PhoneNumber)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updatedUser, err := services.UpdateUserProfile(user.ID, updateRequest.Username, updateRequest.Email, phone)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
