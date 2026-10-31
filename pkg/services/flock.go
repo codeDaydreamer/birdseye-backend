@@ -150,47 +150,12 @@ func (s *FlockService) GetFlockByID(flockID, farmID uint) (*models.Flock, error)
 // CreateFlock starts a batch: the batch, its "placed" movement and, for bought birds with a price, the
 // purchase expense, all in one transaction
 func (s *FlockService) CreateFlock(farmID, userID uint, in FlockInput) (*models.Flock, error) {
-	flock := models.Flock{
-		FarmID: farmID, ProductionType: models.ProductionLayers, Source: models.SourceBought,
-		Status: models.FlockActive, PlacedAt: time.Now(), Health: 100,
-	}
-	if err := in.apply(&flock); err != nil {
+	flock, err := PrepareFlock(farmID, in)
+	if err != nil {
 		return nil, err
 	}
-	flock.Status, flock.ClosedAt = models.FlockActive, nil
-	if in.Birds < 1 {
-		return nil, ErrFlockBirds
-	}
-	if err := CheckFlockLimit(farmID); err != nil {
-		return nil, err
-	}
-	if err := CheckBirdLimit(farmID, in.Birds, 0); err != nil {
-		return nil, err
-	}
-
-	err := s.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&flock).Error; err != nil {
-			return err
-		}
-		placed := models.BirdMovement{FarmID: farmID, FlockID: flock.ID, Type: models.MovePlaced,
-			Delta: in.Birds, Date: flock.PlacedAt, CreatedByUserID: userID}
-		if err := ApplyMovement(tx, &placed); err != nil {
-			return err
-		}
-		if flock.Source == models.SourceBought && flock.CostPerBird > 0 {
-			desc := fmt.Sprintf("%d birds for %s", in.Birds, flock.Name)
-			if flock.Supplier != "" {
-				desc += " from " + flock.Supplier
-			}
-			expense := models.Expense{FarmID: farmID, FlockID: &flock.ID, CreatedByUserID: userID,
-				Date: flock.PlacedAt, Description: desc, Amount: flock.CostPerBird * float64(in.Birds),
-				Category: ExpenseBirdsBought}
-			if err := tx.Create(&expense).Error; err != nil {
-				return err
-			}
-			broadcast.SendExpenseUpdate(farmID, "expense_added", expense)
-		}
-		return nil
+	err = s.DB.Transaction(func(tx *gorm.DB) error {
+		return CreateFlockTx(tx, &flock, in.Birds, userID, "")
 	})
 	if err != nil {
 		return nil, err
@@ -201,6 +166,52 @@ func (s *FlockService) CreateFlock(farmID, userID uint, in FlockInput) (*models.
 	}
 	broadcast.SendFlockUpdate(farmID, "flock_added", *created)
 	return created, nil
+}
+
+// PrepareFlock checks a new batch's details and the plan's limits, returning the batch to create
+func PrepareFlock(farmID uint, in FlockInput) (models.Flock, error) {
+	flock := models.Flock{
+		FarmID: farmID, ProductionType: models.ProductionLayers, Source: models.SourceBought,
+		Status: models.FlockActive, PlacedAt: time.Now(), Health: 100,
+	}
+	if err := in.apply(&flock); err != nil {
+		return flock, err
+	}
+	flock.Status, flock.ClosedAt = models.FlockActive, nil
+	if in.Birds < 1 {
+		return flock, ErrFlockBirds
+	}
+	if err := CheckFlockLimit(farmID); err != nil {
+		return flock, err
+	}
+	return flock, CheckBirdLimit(farmID, in.Birds, 0)
+}
+
+// CreateFlockTx saves a prepared batch with its "placed" movement and, for bought birds with a price, the
+// purchase expense, inside tx
+func CreateFlockTx(tx *gorm.DB, flock *models.Flock, birds int, userID uint, note string) error {
+	if err := tx.Create(flock).Error; err != nil {
+		return err
+	}
+	placed := models.BirdMovement{FarmID: flock.FarmID, FlockID: flock.ID, Type: models.MovePlaced,
+		Delta: birds, Date: flock.PlacedAt, Notes: note, CreatedByUserID: userID}
+	if err := ApplyMovement(tx, &placed); err != nil {
+		return err
+	}
+	if flock.Source == models.SourceBought && flock.CostPerBird > 0 {
+		desc := fmt.Sprintf("%d birds for %s", birds, flock.Name)
+		if flock.Supplier != "" {
+			desc += " from " + flock.Supplier
+		}
+		expense := models.Expense{FarmID: flock.FarmID, FlockID: &flock.ID, CreatedByUserID: userID,
+			Date: flock.PlacedAt, Description: desc, Amount: flock.CostPerBird * float64(birds),
+			Category: ExpenseBirdsBought}
+		if err := tx.Create(&expense).Error; err != nil {
+			return err
+		}
+		broadcast.SendExpenseUpdate(flock.FarmID, "expense_added", expense)
+	}
+	return nil
 }
 
 // UpdateFlock changes a batch's details. Bird counts aren't editable: they change through movements.

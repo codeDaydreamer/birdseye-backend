@@ -266,6 +266,11 @@ func main() {
 		&models.PushSubscription{},
 		&models.DeviceToken{},
 		&models.BirdMovement{},
+		&models.Incubator{},
+		&models.EggSetting{},
+		&models.ChickBooking{},
+		&models.FeedLog{},
+		&models.WeighIn{},
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
@@ -315,6 +320,7 @@ func main() {
 	api.SetupSalesRoutes(router)
 	api.SetupEggProductionRoutes(router)
 	api.SetupFlockRoutes(router)
+	api.SetupHatcheryRoutes(router)
 	api.SetupVaccinationRoutes(router)
 	api.SetupBillingRoutes(router)
 	api.SetupSubscriptionRoutes(router)

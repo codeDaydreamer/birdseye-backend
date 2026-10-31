@@ -9,13 +9,14 @@ import (
 )
 
 // EggStock is a batch's (or the farm's) eggs: collected, lost to adjustments (breakage, eaten, given away),
-// sold, and what's left
+// sold, set in an incubator, and what's left
 type EggStock struct {
 	FlockID   uint   `json:"flock_id,omitempty"`
 	FlockName string `json:"flock_name,omitempty"`
 	Collected int    `json:"collected"`
 	Adjusted  int    `json:"adjusted"`
 	Sold      int    `json:"sold"`
+	Set       int    `json:"set"` // put in an incubator to hatch
 	OnHand    int    `json:"on_hand"`
 }
 
@@ -34,9 +35,9 @@ func EggStockByFlock(tx *gorm.DB, farmID uint, excludeSaleID uint) ([]EggStock, 
 		FlockID uint
 		N       int
 	}
-	sum := func(q *gorm.DB, expr string) (map[uint]int, error) {
+	sumBy := func(q *gorm.DB, column, expr string) (map[uint]int, error) {
 		var rows []row
-		if err := q.Select("flock_id, " + expr + " AS n").Group("flock_id").Scan(&rows).Error; err != nil {
+		if err := q.Select(column + " AS flock_id, " + expr + " AS n").Group(column).Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		m := map[uint]int{}
@@ -44,6 +45,9 @@ func EggStockByFlock(tx *gorm.DB, farmID uint, excludeSaleID uint) ([]EggStock, 
 			m[r.FlockID] = r.N
 		}
 		return m, nil
+	}
+	sum := func(q *gorm.DB, expr string) (map[uint]int, error) {
+		return sumBy(q, "flock_id", expr)
 	}
 	collected, err := sum(tx.Model(&models.EggProduction{}).Where("farm_id = ?", farmID),
 		"COALESCE(SUM(eggs_collected), 0)")
@@ -62,11 +66,17 @@ func EggStockByFlock(tx *gorm.DB, farmID uint, excludeSaleID uint) ([]EggStock, 
 		return nil, err
 	}
 
+	set, err := sumBy(tx.Model(&models.EggSetting{}).Where("farm_id = ? AND source = 'own'", farmID),
+		"source_flock_id", "COALESCE(SUM(eggs_set), 0)")
+	if err != nil {
+		return nil, err
+	}
+
 	stock := make([]EggStock, 0, len(flocks))
 	for _, f := range flocks {
 		s := EggStock{FlockID: f.ID, FlockName: f.Name, Collected: collected[f.ID], Adjusted: adjusted[f.ID],
-			Sold: sold[f.ID]}
-		s.OnHand = s.Collected - s.Adjusted - s.Sold
+			Sold: sold[f.ID], Set: set[f.ID]}
+		s.OnHand = s.Collected - s.Adjusted - s.Sold - s.Set
 		stock = append(stock, s)
 	}
 	return stock, nil
@@ -79,6 +89,7 @@ func FarmEggStock(flocks []EggStock) EggStock {
 		t.Collected += f.Collected
 		t.Adjusted += f.Adjusted
 		t.Sold += f.Sold
+		t.Set += f.Set
 		t.OnHand += f.OnHand
 	}
 	return t
