@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Birdseye database backup
+
+[Timer]
+# 02:30 East Africa Time
+OnCalendar=*-*-* 23:30:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target
