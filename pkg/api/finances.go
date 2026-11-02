@@ -4,6 +4,7 @@ import (
 	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/middlewares"
 	"birdseye-backend/pkg/models"
+	"birdseye-backend/pkg/services"
 	"log"
 	"net/http"
 	"strconv"
@@ -34,8 +35,8 @@ func (h *FlockFinancialHandler) GetFinancialData(c *gin.Context) {
 
 	farmID, _ := farmContext(c)
 
-	var financialData []models.FlocksFinancialData
-	if err := db.DB.Where("farm_id = ?", farmID).Find(&financialData).Error; err != nil {
+	financialData, err := services.FarmMonthlyFinancials(db.DB, farmID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve financial data"})
 		return
 	}
