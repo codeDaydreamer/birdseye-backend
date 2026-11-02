@@ -232,7 +232,7 @@ func HandleDynapayWebhook(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update payment"})
 		return
 	}
-	if changed {
+	if changed && payment.Status != "refunded" {
 		NotifyPaymentOutcome(&payment)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Webhook processed successfully"})

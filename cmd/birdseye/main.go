@@ -280,6 +280,7 @@ func main() {
 		&models.PlatformSettings{},
 		&models.Payment{},
 		&models.EggAdjustment{},
+		&models.AdminAuditEvent{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)

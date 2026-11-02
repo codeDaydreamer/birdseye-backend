@@ -214,6 +214,15 @@ func ApplyDynapayResult(payment *models.Payment, result *DynapayPayment) (bool, 
 		}
 	case "failed", "cancelled", "expired":
 		status = "failed"
+	case "refunded":
+		// Refunded in Dynapay (an M-Pesa reversal approved there). Record it; the farm's paid period
+		// is left alone so an admin can decide what happens to its access.
+		res := db.DB.Model(&models.Payment{}).Where("id = ? AND status = ?", payment.ID, "success").
+			Updates(map[string]interface{}{"status": "refunded", "result_description": "Refunded through Dynapay"})
+		if res.Error != nil || res.RowsAffected == 0 {
+			return false, res.Error
+		}
+		return true, db.DB.First(payment, "id = ?", payment.ID).Error
 	default:
 		return false, nil // still pending
 	}

@@ -52,7 +52,7 @@ func SetupRoutes(router *gin.Engine) {
 
 	// Admin protected routes
 	admin := router.Group("/admin")
-	admin.Use(middlewares.AdminAuthMiddleware())
+	admin.Use(middlewares.AdminAuthMiddleware(), adminAudit())
 	admin.GET("/me", handleGetAdminProfile)
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/farms", handleAdminGetAllFarms)
@@ -64,6 +64,7 @@ func SetupRoutes(router *gin.Engine) {
 
 	// NEW: Admin toggle beta pricing
 	setupAdminPricingRoutes(admin)
+	setupAdminInsightRoutes(admin)
 }
 
 
