@@ -1,6 +1,7 @@
 package email
 
 import (
+	"birdseye-backend/pkg/appconfig"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -24,12 +25,12 @@ type resendRequest struct {
 
 // SendEmail sends an email using the Resend API (RESEND_API_KEY, optional EMAIL_FROM)
 func SendEmail(to, subject, htmlBody string) error {
-	apiKey := os.Getenv("RESEND_API_KEY")
+	apiKey := appconfig.Get("RESEND_API_KEY")
 	if apiKey == "" {
-		return fmt.Errorf("RESEND_API_KEY is missing")
+		return fmt.Errorf("the Resend API key isn't set (admin console > Keys)")
 	}
 
-	sender := os.Getenv("EMAIL_FROM")
+	sender := appconfig.Get("EMAIL_FROM")
 	if sender == "" {
 		sender = defaultSender
 	}

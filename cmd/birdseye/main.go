@@ -1,6 +1,7 @@
 package main
 
 import (
+	"birdseye-backend/pkg/appconfig"
 	"context"
 	"fmt"
 	"log"
@@ -26,8 +27,6 @@ import (
 )
 
 var (
-	vapidPublicKey  string
-	vapidPrivateKey string
 )
 
 func loadEnv() {
@@ -42,63 +41,56 @@ func loadEnv() {
 	}
 }
 
-// loadVAPIDKeys enables Web Push. The key pair must be fixed in the environment: the client is built
-// with the matching public key (VITE_VAPID_PUBLIC_KEY), so keys generated at boot could never work.
-func loadVAPIDKeys() {
-	vapidPublicKey = os.Getenv("VAPID_PUBLIC_KEY")
-	vapidPrivateKey = os.Getenv("VAPID_PRIVATE_KEY")
+// configurePush sets up notifications to browsers (Web Push, VAPID keys) and to the Android app (Firebase).
+// Keys come from the admin console or the environment (pkg/appconfig); this runs again whenever they change.
+// The web app fetches the VAPID public key from /push/vapid-public-key, so a new key pair needs no rebuild.
+func configurePush() {
+	var toUser []func(uint, string, string, string)
+	var toFarm []func(uint, string, string, string)
 
-	if vapidPublicKey == "" || vapidPrivateKey == "" {
-		log.Println("Warning: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set, Web Push disabled")
-		return
+	pub, priv := appconfig.Get("VAPID_PUBLIC_KEY"), appconfig.Get("VAPID_PRIVATE_KEY")
+	if pub != "" && priv != "" {
+		subscriber := appconfig.Get("VAPID_SUBSCRIBER")
+		if subscriber == "" {
+			subscriber = "mailto:support@birdseye-poultry.com"
+		}
+		push := services.NewWebPush(db.DB, pub, priv, subscriber)
+		toUser, toFarm = append(toUser, push.SendToUser), append(toFarm, push.SendToFarm)
+	} else {
+		log.Println("Warning: VAPID keys not set, Web Push disabled")
 	}
 
-	subscriber := os.Getenv("VAPID_SUBSCRIBER") // e.g. mailto:support@birdseye-poultry.com
-	if subscriber == "" {
-		subscriber = "mailto:support@birdseye-poultry.com"
-	}
-
-	push := services.NewWebPush(db.DB, vapidPublicKey, vapidPrivateKey, subscriber)
-	broadcast.PushToUser = push.SendToUser
-	broadcast.PushToFarm = push.SendToFarm
-}
-
-// loadFCM enables push to the mobile app through Firebase, alongside Web Push. The service account comes from
-// FIREBASE_SERVICE_ACCOUNT_FILE (a path to the JSON key) or FIREBASE_SERVICE_ACCOUNT_JSON (its contents).
-func loadFCM() {
-	key := []byte(os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+	key := []byte(appconfig.Get("FIREBASE_SERVICE_ACCOUNT_JSON"))
 	if path := os.Getenv("FIREBASE_SERVICE_ACCOUNT_FILE"); len(key) == 0 && path != "" {
 		var err error
 		if key, err = os.ReadFile(path); err != nil {
-			log.Printf("Warning: can't read FIREBASE_SERVICE_ACCOUNT_FILE: %v, mobile push disabled", err)
-			return
+			log.Printf("Warning: can't read FIREBASE_SERVICE_ACCOUNT_FILE: %v", err)
+			key = nil
 		}
 	}
-	if len(key) == 0 {
-		log.Println("Warning: FIREBASE_SERVICE_ACCOUNT_FILE not set, mobile push disabled")
-		return
-	}
-	fcm, err := services.NewFCM(db.DB, key)
-	if err != nil {
-		log.Printf("Warning: %v, mobile push disabled", err)
-		return
+	if len(key) > 0 {
+		if fcm, err := services.NewFCM(db.DB, key); err != nil {
+			log.Printf("Warning: %v, mobile push disabled", err)
+		} else {
+			toUser, toFarm = append(toUser, fcm.SendToUser), append(toFarm, fcm.SendToFarm)
+		}
+	} else {
+		log.Println("Warning: Firebase service account not set, mobile push disabled")
 	}
 
-	// Send to phones as well as to whatever loadVAPIDKeys set up for browsers
-	webToUser, webToFarm := broadcast.PushToUser, broadcast.PushToFarm
-	broadcast.PushToUser = func(userID uint, title, body, url string) {
-		if webToUser != nil {
-			webToUser(userID, title, body, url)
-		}
-		fcm.SendToUser(userID, title, body, url)
+	if len(toUser) == 0 {
+		broadcast.SetPush(nil, nil)
+		return
 	}
-	broadcast.PushToFarm = func(farmID uint, title, body, url string) {
-		if webToFarm != nil {
-			webToFarm(farmID, title, body, url)
+	broadcast.SetPush(func(userID uint, title, body, url string) {
+		for _, send := range toUser {
+			send(userID, title, body, url)
 		}
-		fcm.SendToFarm(farmID, title, body, url)
-	}
-	log.Println("Mobile push (Firebase Cloud Messaging) enabled")
+	}, func(farmID uint, title, body, url string) {
+		for _, send := range toFarm {
+			send(farmID, title, body, url)
+		}
+	})
 }
 
 var upgrader = websocket.Upgrader{
@@ -238,11 +230,6 @@ func main() {
 
 	
 
-	// Initialize Google OAuth config
-	services.InitGoogleOAuth()
-
-	services.InitDynapayClient()
-
 	// Initialize the database
 	db.InitializeDB()
 
@@ -281,6 +268,7 @@ func main() {
 		&models.Payment{},
 		&models.EggAdjustment{},
 		&models.AdminAuditEvent{},
+		&models.AppSetting{},
 	)
 	if err != nil {
 		log.Fatalf("Error during auto migration: %v", err)
@@ -288,9 +276,16 @@ func main() {
 	log.Println("Database migrated successfully")
 	
 	
-	// Load VAPID keys (needs the DB for push subscriptions)
-	loadVAPIDKeys()
-	loadFCM()
+	// Integration keys: saved from the admin console, else the environment. Each integration
+	// is set up now and again whenever an admin changes its keys.
+	appconfig.Load()
+	services.InitGoogleOAuth()
+	services.InitDynapayClient()
+	configurePush()
+	appconfig.OnChange("google", services.InitGoogleOAuth)
+	appconfig.OnChange("dynapay", services.InitDynapayClient)
+	appconfig.OnChange("push", configurePush)
+	appconfig.OnChange("fcm", configurePush)
 
 	// Initialize authentication middleware
 	middlewares.InitAuthMiddleware()
@@ -343,6 +338,7 @@ func main() {
 	router.GET("/ws", handleWebSocket)
 	router.GET("/wss", handleWebSocket)
 
+	router.GET("/push/vapid-public-key", api.HandleVAPIDPublicKey)
 	router.POST("/api/push/subscribe", middlewares.UserAuth(), api.HandlePushSubscription)
 	router.POST("/push/device", middlewares.UserAuth(), api.HandleRegisterDevice)
 	router.DELETE("/push/device", middlewares.UserAuth(), api.HandleUnregisterDevice)
@@ -380,7 +376,7 @@ func main() {
 			"connected": dbHealthy,
 		},
 		"google_oauth": gin.H{
-			"client_id_loaded": os.Getenv("GOOGLE_CLIENT_ID") != "",
+			"client_id_loaded": appconfig.Get("GOOGLE_CLIENT_ID") != "",
 		},
 	})
 

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"birdseye-backend/pkg/appconfig"
 	"strconv"
 	"net/url"
 	"birdseye-backend/pkg/db"
@@ -39,14 +40,14 @@ var ErrTokenExpired = errors.New("token has expired")
 
 
 func InitGoogleOAuth() {
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	redirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
-
-	
+	clientID := appconfig.Get("GOOGLE_CLIENT_ID")
+	clientSecret := appconfig.Get("GOOGLE_CLIENT_SECRET")
+	redirectURL := appconfig.Get("GOOGLE_REDIRECT_URL")
 
 	if clientID == "" || clientSecret == "" || redirectURL == "" {
-		log.Fatal("Missing required Google OAuth environment variables!")
+		log.Println("Warning: Google sign-in isn't configured (client ID, secret and redirect URL), web Google sign-in disabled")
+		googleOAuthConfig = nil
+		return
 	}
 
 	googleOAuthConfig = &oauth2.Config{
@@ -60,16 +61,16 @@ func InitGoogleOAuth() {
 		Endpoint: google.Endpoint,
 	}
 }
-// GetGoogleOAuthConfig returns the Google OAuth configuration
+// GetGoogleOAuthConfig returns the Google OAuth configuration, or nil when Google sign-in isn't set up
 func GetGoogleOAuthConfig() *oauth2.Config {
-	if googleOAuthConfig == nil {
-		log.Fatal("Google OAuth is not initialized! Call InitGoogleOAuth() first.")
-	}
 	return googleOAuthConfig
 }
 
 // GoogleAuthURL generates the Google OAuth login URL
 func GoogleAuthURL() string {
+	if googleOAuthConfig == nil {
+		return ""
+	}
 	return googleOAuthConfig.AuthCodeURL("random-state-string", oauth2.AccessTypeOffline)
 }
 
@@ -494,7 +495,7 @@ func signInWithGoogleProfile(emailAddr, name, picture string) (*models.User, err
 // Android app uses as its serverClientId) plus any in GOOGLE_ALLOWED_CLIENT_IDS
 func googleAudiences() map[string]bool {
 	allowed := map[string]bool{}
-	for _, id := range append([]string{os.Getenv("GOOGLE_CLIENT_ID")}, strings.Split(os.Getenv("GOOGLE_ALLOWED_CLIENT_IDS"), ",")...) {
+	for _, id := range append([]string{appconfig.Get("GOOGLE_CLIENT_ID")}, strings.Split(appconfig.Get("GOOGLE_ALLOWED_CLIENT_IDS"), ",")...) {
 		if id = strings.TrimSpace(id); id != "" {
 			allowed[id] = true
 		}

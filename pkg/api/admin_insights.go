@@ -1,9 +1,9 @@
 package api
 
 import (
+	"birdseye-backend/pkg/appconfig"
 	"context"
 	"net/http"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -168,8 +168,8 @@ func handleAdminSystem(c *gin.Context) {
 		dbStats = gin.H{"open": s.OpenConnections, "in_use": s.InUse, "idle": s.Idle, "wait_count": s.WaitCount}
 	}
 
-	dynapay := gin.H{"configured": os.Getenv("DYNAPAY_API_URL") != "" && os.Getenv("DYNAPAY_CLIENT_ID") != ""}
-	if base := strings.TrimRight(os.Getenv("DYNAPAY_API_URL"), "/"); base != "" {
+	dynapay := gin.H{"configured": appconfig.Get("DYNAPAY_API_URL") != "" && appconfig.Get("DYNAPAY_CLIENT_ID") != ""}
+	if base := strings.TrimRight(appconfig.Get("DYNAPAY_API_URL"), "/"); base != "" {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/health", nil)
 		t := time.Now()
 		resp, err := http.DefaultClient.Do(req)
@@ -185,7 +185,7 @@ func handleAdminSystem(c *gin.Context) {
 
 	set := func(names ...string) bool {
 		for _, n := range names {
-			if os.Getenv(n) == "" {
+			if appconfig.Get(n) == "" {
 				return false
 			}
 		}

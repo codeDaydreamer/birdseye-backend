@@ -282,3 +282,15 @@ func GetAllFarms() ([]AdminFarm, error) {
 	}
 	return farms, nil
 }
+
+// VerifyAdminPassword confirms an admin's password, for sensitive actions like changing integration keys
+func VerifyAdminPassword(adminID uint, password string) error {
+	var admin models.Admin
+	if err := db.DB.First(&admin, adminID).Error; err != nil {
+		return errors.New("admin not found")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password)) != nil {
+		return errors.New("wrong password")
+	}
+	return nil
+}

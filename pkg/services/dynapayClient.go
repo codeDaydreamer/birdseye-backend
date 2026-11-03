@@ -1,6 +1,7 @@
 package services
 
 import (
+	"birdseye-backend/pkg/appconfig"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -12,7 +13,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,9 +54,9 @@ var Dynapay *dynapayClient
 
 func InitDynapayClient() {
 	Dynapay = &dynapayClient{
-		ClientID:     os.Getenv("DYNAPAY_CLIENT_ID"),
-		ClientSecret: os.Getenv("DYNAPAY_CLIENT_SECRET"),
-		APIBaseURL:   strings.TrimRight(os.Getenv("DYNAPAY_API_URL"), "/"),
+		ClientID:     appconfig.Get("DYNAPAY_CLIENT_ID"),
+		ClientSecret: appconfig.Get("DYNAPAY_CLIENT_SECRET"),
+		APIBaseURL:   strings.TrimRight(appconfig.Get("DYNAPAY_API_URL"), "/"),
 		http:         &http.Client{Timeout: 30 * time.Second},
 	}
 	log.Println("Dynapay client initialized")
@@ -167,9 +167,9 @@ func (d *dynapayClient) GetPayment(id string) (*DynapayPayment, error) {
 // VerifyDynapaySignature checks a webhook's Dynapay-Signature header ("t=<unix>,v1=<hex hmac>") against
 // DYNAPAY_WEBHOOK_SECRET, rejecting signatures more than 5 minutes old (replays)
 func VerifyDynapaySignature(header string, body []byte) error {
-	secret := os.Getenv("DYNAPAY_WEBHOOK_SECRET")
+	secret := appconfig.Get("DYNAPAY_WEBHOOK_SECRET")
 	if secret == "" {
-		return errors.New("DYNAPAY_WEBHOOK_SECRET is not set")
+		return errors.New("the Dynapay webhook secret is not set")
 	}
 	var ts, sig string
 	for _, part := range strings.Split(header, ",") {
@@ -282,4 +282,13 @@ func RunDynapayReconciler(ctx context.Context, onSettled func(*models.Payment)) 
 			}
 		}
 	}
+}
+
+// Ping checks the configured Dynapay URL and API key by fetching a fresh token
+func (d *dynapayClient) Ping() error {
+	if d.APIBaseURL == "" || d.ClientID == "" || d.ClientSecret == "" {
+		return errors.New("the Dynapay API URL, client ID and client secret all need to be set")
+	}
+	_, err := d.accessToken(true)
+	return err
 }

@@ -21,12 +21,29 @@ type client struct {
 	FarmID uint
 }
 
-// Web Push senders, wired up in main when VAPID keys are configured. Notifications also go out as
-// Web Push so users get them when the app isn't open.
+// PushSender delivers a notification to a user's or farm's devices (Web Push and/or Firebase)
+type PushSender func(id uint, title, body, url string)
+
+// Push senders, wired up in main from the configured keys (and replaced when an admin changes them).
+// Notifications also go out as push so users get them when the app isn't open.
 var (
-	PushToUser func(userID uint, title, body, url string)
-	PushToFarm func(farmID uint, title, body, url string)
+	pushMu     sync.RWMutex
+	pushToUser PushSender
+	pushToFarm PushSender
 )
+
+// SetPush replaces the push senders; nil turns push off
+func SetPush(toUser, toFarm PushSender) {
+	pushMu.Lock()
+	pushToUser, pushToFarm = toUser, toFarm
+	pushMu.Unlock()
+}
+
+func pushSenders() (PushSender, PushSender) {
+	pushMu.RLock()
+	defer pushMu.RUnlock()
+	return pushToUser, pushToFarm
+}
 
 // UpdateMessage represents a generic WebSocket update message
 type UpdateMessage struct {
@@ -171,8 +188,8 @@ func SendNotification(userID uint, title, message, url string) {
 
 	sendTo(msg, func(cl client) bool { return cl.UserID == userID })
 
-	if PushToUser != nil {
-		go PushToUser(userID, title, message, url)
+	if toUser, _ := pushSenders(); toUser != nil {
+		go toUser(userID, title, message, url)
 	}
 }
 
@@ -198,8 +215,8 @@ func SendFarmNotification(farmID uint, title, message, url string) {
 
 	sendTo(msg, func(cl client) bool { return cl.FarmID == farmID })
 
-	if PushToFarm != nil {
-		go PushToFarm(farmID, title, message, url)
+	if _, toFarm := pushSenders(); toFarm != nil {
+		go toFarm(farmID, title, message, url)
 	}
 }
 

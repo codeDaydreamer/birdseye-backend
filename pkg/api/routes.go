@@ -53,6 +53,7 @@ func SetupRoutes(router *gin.Engine) {
 	// Admin protected routes
 	admin := router.Group("/admin")
 	admin.Use(middlewares.AdminAuthMiddleware(), adminAudit())
+	setupAdminConfigRoutes(admin)
 	admin.GET("/me", handleGetAdminProfile)
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/farms", handleAdminGetAllFarms)
@@ -356,7 +357,11 @@ func handleGoogleMobileSignIn(c *gin.Context) {
 }
 
 func handleGoogleLogin(c *gin.Context) {
-	config := services.GetGoogleOAuthConfig() // Get the OAuth config
+	config := services.GetGoogleOAuthConfig()
+	if config == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Google sign-in isn't available right now"})
+		return
+	}
 
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	c.Redirect(http.StatusTemporaryRedirect, authURL)
