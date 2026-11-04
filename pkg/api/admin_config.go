@@ -152,7 +152,7 @@ func handleAdminTestEmail(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter an email address"})
 		return
 	}
-	body := `<p>This is a test email from the Birdseye admin console.</p><p>If you can read it, Resend is set up correctly.</p>`
+	body := `This is a test email from the Birdseye admin console. If you can read it, Resend is set up correctly.`
 	if err := email.SendEmail(req.To, "Birdseye test email", body); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return

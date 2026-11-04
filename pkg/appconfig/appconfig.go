@@ -50,7 +50,7 @@ type Group struct {
 var Groups = []Group{
 	{ID: "email", Title: "Email (Resend)", About: "Sign-up codes, password resets, invites, reminders and receipts.", Fields: []Field{
 		{Key: "RESEND_API_KEY", Label: "Resend API key", Secret: true, Placeholder: "re_...", Help: "resend.com > API keys. Needs sending access for the birdseye-poultry.com domain."},
-		{Key: "EMAIL_FROM", Label: "Send as", Placeholder: "Birdseye <noreply@birdseye-poultry.com>", Help: "Must be on a domain verified in Resend."},
+		{Key: "EMAIL_FROM", Label: "Send as", Placeholder: "Birdseye Poultry <hello@birdseye-poultry.com>", Help: "Leave empty to send as Birdseye Poultry <hello@birdseye-poultry.com>. Must be on a domain verified in Resend."},
 	}},
 	{ID: "push", Title: "Browser push (VAPID)", About: "Notifications in the web app. Changing the key pair signs every browser out of push until they open the app again.", Fields: []Field{
 		{Key: "VAPID_PUBLIC_KEY", Label: "Public key", Placeholder: "B..."},

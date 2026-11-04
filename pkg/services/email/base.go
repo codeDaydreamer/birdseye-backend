@@ -11,8 +11,12 @@ import (
 	"time"
 )
 
-// defaultSender is used when EMAIL_FROM isn't set; its domain must be verified in Resend
-const defaultSender = "Birdseye Poultry <birdseye-poultry@816-dynamics.com>"
+// defaultSender is used when EMAIL_FROM isn't set; birdseye-poultry.com must be verified in Resend
+const defaultSender = "Birdseye Poultry <hello@birdseye-poultry.com>"
+
+const appURL = "https://app.birdseye-poultry.com"
+
+var brand = Brand{Product: "Birdseye Poultry", Color: "#249225", Dark: "#1a6b1b", Tint: "#ecf8ec", URL: appURL}
 
 // resendRequest is the payload for Resend's send-email API
 type resendRequest struct {
@@ -23,8 +27,19 @@ type resendRequest struct {
 	Text    string   `json:"text,omitempty"`
 }
 
-// SendEmail sends an email using the Resend API (RESEND_API_KEY, optional EMAIL_FROM)
+// send renders a message in the Birdseye layout and sends it
+func send(to, subject string, m Message) error {
+	htmlBody, textBody := Render(brand, m)
+	return deliver(to, subject, htmlBody, textBody)
+}
+
+// SendEmail sends a short message whose body is trusted HTML, in the Birdseye layout
 func SendEmail(to, subject, htmlBody string) error {
+	return send(to, subject, Message{Title: subject, Lines: []string{htmlBody}})
+}
+
+// deliver sends through the Resend API (RESEND_API_KEY, optional EMAIL_FROM)
+func deliver(to, subject, htmlBody, textBody string) error {
 	apiKey := appconfig.Get("RESEND_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("the Resend API key isn't set (admin console > Keys)")
@@ -40,15 +55,7 @@ func SendEmail(to, subject, htmlBody string) error {
 		url = "https://api.resend.com/emails"
 	}
 
-	emailReq := resendRequest{
-		From:    sender,
-		To:      []string{to},
-		Subject: subject,
-		HTML:    htmlBody,
-		Text:    "Thank you for using Birdseye Poultry.",
-	}
-
-	data, err := json.Marshal(emailReq)
+	data, err := json.Marshal(resendRequest{From: sender, To: []string{to}, Subject: subject, HTML: htmlBody, Text: textBody})
 	if err != nil {
 		return fmt.Errorf("failed to marshal email payload: %w", err)
 	}
@@ -57,27 +64,19 @@ func SendEmail(to, subject, htmlBody string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2000))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("email failed: status %d - %s", resp.StatusCode, string(body))
 	}
-
-	fmt.Printf("Email sent successfully. Response: %s\n", string(body))
 	return nil
 }
