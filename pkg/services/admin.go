@@ -115,32 +115,6 @@ func AdminDeleteUserByID(idStr string) error {
 	return nil
 }
 
-// RegisterAdmin creates a new admin account with hashed password
-func RegisterAdmin(admin *models.Admin) (*models.Admin, error) {
-	// Check for existing admin
-	var existingAdmin models.Admin
-	if err := db.DB.Where("email = ? OR username = ?", admin.Email, admin.Username).First(&existingAdmin).Error; err == nil {
-		return nil, errors.New("admin with this email or username already exists")
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(admin.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-	admin.Password = string(hashedPassword)
-
-	admin.Role = "admin"
-
-	// Save to DB
-	if err := db.DB.Create(admin).Error; err != nil {
-		return nil, err
-	}
-
-	admin.Password = "" // remove password before return
-	return admin, nil
-}
-
 // LoginAdmin authenticates admin and returns JWT token
 func LoginAdmin(identifier, password string) (string, *models.Admin, error) {
 	var admin models.Admin

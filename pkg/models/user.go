@@ -67,7 +67,20 @@ type Admin struct {
 	Password  string    `json:"password"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Role      string    `gorm:"default:admin" json:"role"` // Default role is admin
+	Role      string    `gorm:"default:admin" json:"role"` // admin (everything) or viewer (read-only)
+}
+
+// AdminInvite is an emailed link to join the admin console. Only the token's hash is stored.
+type AdminInvite struct {
+	ID          uint       `gorm:"primaryKey" json:"id"`
+	Email       string     `gorm:"index;not null" json:"email"`
+	Role        string     `gorm:"not null" json:"role"`
+	TokenHash   string     `gorm:"uniqueIndex;size:64;not null" json:"-"`
+	InvitedByID uint       `json:"invited_by_id"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	AcceptedAt  *time.Time `json:"accepted_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // HashPassword hashes the password using bcrypt

@@ -176,3 +176,21 @@ func SendPaymentReminderEmail(toEmail, name string) error {
 		Note:     "Need more time or have a question? " + whatsApp + ".",
 	})
 }
+
+// SendAdminInviteEmail invites someone to the Birdseye admin console
+func SendAdminInviteEmail(toEmail, inviterName, role, inviteURL string, days int) error {
+	what := "manage farms, users, subscriptions and settings"
+	if role == "viewer" {
+		what = "view farms, users, subscriptions and reports (read-only)"
+	}
+	return send(toEmail, "You're invited to the Birdseye admin console", Message{
+		Preview: fmt.Sprintf("%s invited you to the Birdseye admin console as %s.", inviterName, role),
+		Title:   "Join the Birdseye admin console",
+		Lines: []string{
+			fmt.Sprintf("<strong>%s</strong> invited you to the Birdseye Poultry admin console as <strong>%s</strong>, so you can %s.", Esc(inviterName), Esc(role), what),
+			"Accept the invitation to choose a username and password.",
+		},
+		Button: &Button{Label: "Accept invitation", URL: inviteURL},
+		Note:   fmt.Sprintf("The link works once and expires in %d days. If you weren't expecting this, you can ignore this email.", days),
+	})
+}

@@ -46,14 +46,20 @@ func SetupRoutes(router *gin.Engine) {
 		protected.PUT("/change-password", handleChangePassword)
 
 		// Admin Public routes
-		auth.POST("/admin/register", handleAdminRegistration)
+		auth.GET("/admin/status", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"setup_required": services.AdminSetupRequired()})
+		})
+		auth.POST("/admin/register", handleAdminRegistration) // first admin only
 		auth.POST("/admin/login", handleAdminLogin)
+		auth.GET("/admin/invites/:token", handleAdminInviteInfo)
+		auth.POST("/admin/invites/:token/accept", handleAdminAcceptInvite)
 	}
 
 	// Admin protected routes
 	admin := router.Group("/admin")
 	admin.Use(middlewares.AdminAuthMiddleware(), adminAudit())
 	setupAdminConfigRoutes(admin)
+	setupAdminTeamRoutes(admin)
 	admin.GET("/me", handleGetAdminProfile)
 	admin.GET("/users", handleAdminGetAllUsers)
 	admin.GET("/farms", handleAdminGetAllFarms)
@@ -212,47 +218,36 @@ func handleGetAdminProfile(c *gin.Context) {
 		"id":       admin.ID,
 		"username": admin.Username,
 		"email":    admin.Email,
+		"role":     admin.Role,
+		"founder":  admin.ID == services.AdminFounderID(),
 		// add other fields you want to expose here
 	}
 
 	c.JSON(http.StatusOK, gin.H{"admin": sanitizedAdmin})
 }
 
-// Handle admin registration
+// handleAdminRegistration creates the first admin (setup). Once any admin exists it is closed:
+// everyone else joins through an invite from the Team page.
 func handleAdminRegistration(c *gin.Context) {
-	// Only the very first admin can self-register; after that, an existing admin must be signed in
-	var adminCount int64
-	if err := db.DB.Model(&models.Admin{}).Count(&adminCount).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check admins"})
-		return
+	var in struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
-	if adminCount > 0 {
-		caller, err := middlewares.GetUserFromToken(c.GetHeader("Authorization"))
-		if err != nil || caller.Role != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Only an existing admin can create admins"})
-			return
-		}
-	}
-
-	var admin models.Admin  // Assuming you have a separate Admin model
-
-	if err := c.ShouldBindJSON(&admin); err != nil {
-		log.Printf("Error binding request body: %v\n", err)
+	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-
-	registeredAdmin, err := services.RegisterAdmin(&admin)
+	admin, token, err := services.SetupFirstAdmin(in.Username, in.Email, in.Password)
 	if err != nil {
-		log.Printf("Error registering admin: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, services.ErrAdminSetupDone) {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Admin registration successful.",
-		"admin":   registeredAdmin,
-	})
+	c.JSON(http.StatusOK, gin.H{"token": token, "admin": admin})
 }
 
 // Handle admin login

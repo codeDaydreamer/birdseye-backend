@@ -262,6 +262,7 @@ func main() {
 		&models.Notification{},
 		&models.Budget{},
 		&models.Admin{},
+		&models.AdminInvite{},
 		&models.Plan{},
 		&models.PromoCode{},
 		&models.PlatformSettings{},

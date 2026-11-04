@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 )
 
@@ -111,14 +112,48 @@ func AdminAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if user.Role != "admin" {
+		// Only console tokens (they carry admin_id), and only for an admin that still exists: a removed
+		// admin or a changed role takes effect on the next request, not when the token expires
+		if !isAdminToken(token) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 			c.Abort()
 			return
 		}
+		var admin models.Admin
+		if db.DB.Select("id, role").First(&admin, user.ID).Error != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token expired, please log in again"})
+			c.Abort()
+			return
+		}
+		// Viewers can look but not change anything
+		if admin.Role == "viewer" && c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Your console role is viewer (read-only)"})
+			c.Abort()
+			return
+		}
 
-		c.Set("user_id", user.ID)
-		c.Set("role", user.Role)
+		c.Set("user_id", admin.ID)
+		c.Set("role", admin.Role)
 		c.Next()
 	}
+}
+
+// isAdminToken reports whether a signed token was issued by the admin console (admin_id claim)
+func isAdminToken(tokenString string) bool {
+	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	t, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(JWTSecret), nil
+	})
+	if err != nil || !t.Valid {
+		return false
+	}
+	claims, ok := t.Claims.(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+	_, isAdmin := claims["admin_id"]
+	return isAdmin
 }
