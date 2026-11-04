@@ -18,5 +18,6 @@ type Vaccination struct {
 	CreatedAt           time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt           time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 	Period              string    `json:"period"` // e.g., "monthly", "yearly"
+	LastRemindedAt      *time.Time `json:"last_reminded_at"` // when the reminder job last emailed/pushed about it
 }
 

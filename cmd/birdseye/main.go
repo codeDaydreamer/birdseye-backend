@@ -175,49 +175,55 @@ func checkDBConnection() bool {
 }
 
 
+// Vaccination reminders. The job used to tick every 48 hours from server start, so with deploys more
+// often than that it never ran. Now it checks every hour (and right after start), sends only in the
+// day (07:00 to 20:00 server time, Africa/Nairobi), and remembers per vaccination when it last
+// reminded: each pending vaccination due in the next 14 days gets a reminder at most every 47 hours.
+// The reminder is claimed with a conditional UPDATE before sending, so a restart or the blue-green
+// overlap (two copies running for a few seconds) can't send it twice.
+const reminderEvery = 47 * time.Hour
+
 func startVaccinationReminderTask(vaccinationService *services.VaccinationService) {
-	ticker := time.NewTicker(48 * time.Hour) // Run every 48 hours
-	defer ticker.Stop()
+	time.Sleep(time.Minute) // let a fresh deploy settle (and the old colour stop) first
+	for {
+		runVaccinationReminders(vaccinationService)
+		time.Sleep(time.Hour)
+	}
+}
 
-	for range ticker.C {
-		now := time.Now()
-		var vaccinations []models.Vaccination
-
-		err := vaccinationService.DB.Where("date > ? AND date < ?", now, now.Add(14*24*time.Hour)).Find(&vaccinations).Error
+func runVaccinationReminders(vaccinationService *services.VaccinationService) {
+	now := time.Now()
+	if h := now.Hour(); h < 7 || h >= 20 {
+		return
+	}
+	var vaccinations []models.Vaccination
+	err := vaccinationService.DB.Where("date > ? AND date < ? AND LOWER(status) NOT IN ('completed', 'done')", now, now.Add(14*24*time.Hour)).
+		Where("last_reminded_at IS NULL OR last_reminded_at < ?", now.Add(-reminderEvery)).Find(&vaccinations).Error
+	if err != nil {
+		log.Printf("vaccination reminders: %v", err)
+		return
+	}
+	for _, vaccination := range vaccinations {
+		claim := vaccinationService.DB.Model(&models.Vaccination{}).
+			Where("id = ? AND (last_reminded_at IS NULL OR last_reminded_at < ?)", vaccination.ID, now.Add(-reminderEvery)).
+			Update("last_reminded_at", now)
+		if claim.Error != nil || claim.RowsAffected == 0 {
+			continue // another copy of the server took it
+		}
+		if err := vaccinationService.SendVaccinationReminder(&vaccination); err != nil {
+			log.Printf("vaccination %d: push reminder: %v", vaccination.ID, err)
+		}
+		managers, err := services.GetFarmManagers(vaccination.FarmID)
 		if err != nil {
-			log.Printf("Error retrieving vaccinations: %v", err)
+			log.Printf("vaccination %d: farm managers: %v", vaccination.ID, err)
 			continue
 		}
-
-		log.Println("Found vaccinations:", vaccinations)
-
-		for _, vaccination := range vaccinations {
-			if now.Before(vaccination.Date.Add(14 * 24 * time.Hour)) {
-				err := vaccinationService.SendVaccinationReminder(&vaccination)
-				if err != nil {
-					log.Printf("Error sending reminder for vaccination %d: %v", vaccination.ID, err)
-					continue
-				}
-
-				// Email the farm's owners and managers
-				managers, err := services.GetFarmManagers(vaccination.FarmID)
-				if err != nil {
-					log.Printf("Error fetching farm managers for vaccination %d: %v", vaccination.ID, err)
-					continue
-				}
-
-				for _, user := range managers {
-					err = email.SendVaccinationReminderEmail(user.Email, user.Username, &vaccination)
-					if err != nil {
-						log.Printf("Error sending email for vaccination %d to user %d: %v", vaccination.ID, user.ID, err)
-					} else {
-						log.Printf("Vaccination reminder email sent for vaccination %d to user %d", vaccination.ID, user.ID)
-					}
-				}
-			} else {
-				log.Printf("Vaccination %d is no longer within the reminder window", vaccination.ID)
+		for _, user := range managers {
+			if err := email.SendVaccinationReminderEmail(user.Email, user.Username, &vaccination); err != nil {
+				log.Printf("vaccination %d: email to user %d: %v", vaccination.ID, user.ID, err)
 			}
 		}
+		log.Printf("vaccination %d: reminded %d manager(s)", vaccination.ID, len(managers))
 	}
 }
 
