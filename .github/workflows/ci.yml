@@ -19,3 +19,29 @@ jobs:
         run: go build ./...
       - name: Test
         run: go test -race ./...
+
+  # Blue-green deploy to the VPS after the tests pass on master. The image is built here and
+  # streamed over SSH; the key in DEPLOY_SSH_KEY can only run /opt/stack/bin/ci-deploy birdseye
+  # (see infra/README.md). Deploys of this app never overlap.
+  deploy:
+    needs: go
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-birdseye
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t stack/birdseye:incoming .
+      - name: Ship and switch
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          docker save stack/birdseye:incoming | gzip -1 |
+            ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o ServerAliveInterval=30 "$DEPLOY_HOST" "deploy ${GITHUB_SHA::7}"
