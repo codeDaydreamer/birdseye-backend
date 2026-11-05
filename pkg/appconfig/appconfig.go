@@ -67,8 +67,9 @@ var Groups = []Group{
 		{Key: "GOOGLE_REDIRECT_URL", Label: "Redirect URL", Placeholder: "https://server.birdseye-poultry.com/auth/google/callback"},
 		{Key: "GOOGLE_ALLOWED_CLIENT_IDS", Label: "Other allowed client IDs", Placeholder: "android-id.apps.googleusercontent.com", Help: "Comma-separated: the Android app's client IDs."},
 	}},
-	{ID: "dynapay", Title: "Payments (Dynapay)", About: "M-Pesa subscription payments. Get these from the Dynapay dashboard: Developers > API keys and Webhooks.", Fields: []Field{
-		{Key: "DYNAPAY_API_URL", Label: "API URL", Placeholder: "https://dynapay.birdseye-poultry.com"},
+	{ID: "dynapay", Title: "Payments (Dynapay)", About: "M-Pesa subscription payments. Get the keys from the Dynapay dashboard (dynapay.816-dynamics.com): as Dynapay staff, Merchants > Birdseye > API keys and Webhooks; signed in as the Birdseye merchant, Developers > API keys and Webhooks.", Fields: []Field{
+		{Key: "DYNAPAY_API_URL", Label: "API URL", Placeholder: "http://dynapay:8081",
+			Help: "On the VPS keep http://dynapay:8081: the private address inside the server, which always follows the live Dynapay version. Outside the server use https://dynapay-api.816-dynamics.com."},
 		{Key: "DYNAPAY_CLIENT_ID", Label: "Client ID", Placeholder: "dp_live_..."},
 		{Key: "DYNAPAY_CLIENT_SECRET", Label: "Client secret", Secret: true},
 		{Key: "DYNAPAY_WEBHOOK_SECRET", Label: "Webhook signing secret", Secret: true, Help: "Shown once when the webhook endpoint is set in Dynapay."},
@@ -290,7 +291,8 @@ func validate(set map[string]string) error {
 				return errors.New("that doesn't look like a Firebase service account file (no private_key/client_email)")
 			}
 		case "GOOGLE_REDIRECT_URL", "DYNAPAY_API_URL":
-			if !strings.HasPrefix(v, "https://") && !strings.HasPrefix(v, "http://localhost") && !strings.HasPrefix(v, "http://127.0.0.1") {
+			internal := k == "DYNAPAY_API_URL" && strings.HasPrefix(v, "http://dynapay:") // private address inside the stack
+			if !internal && !strings.HasPrefix(v, "https://") && !strings.HasPrefix(v, "http://localhost") && !strings.HasPrefix(v, "http://127.0.0.1") {
 				return errors.New("URLs must use https://")
 			}
 		}
