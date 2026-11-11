@@ -1,12 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
 
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 	"birdseye-backend/pkg/services"
 
@@ -47,12 +49,26 @@ func SetupPlanRoutes(r *gin.Engine) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"plans":    plans,
-			"features": services.PlanFeatureCatalog,
-			"currency": settings.Currency,
-			"trial":    gin.H{"enabled": settings.TrialEnabled, "days": settings.TrialDays},
+			"plans":        plans,
+			"features":     services.PlanFeatureCatalog,
+			"currency":     settings.Currency,
+			"trial":        gin.H{"enabled": settings.TrialEnabled, "days": settings.TrialDays},
+			"launch_offer": launchOffer(),
 		})
 	})
+	r.GET("/launch-offer", func(c *gin.Context) {
+		c.JSON(http.StatusOK, launchOffer())
+	})
+}
+
+// launchOffer is the public launch offer state (switched off if it can't be read)
+func launchOffer() *services.LaunchOffer {
+	offer, err := services.GetLaunchOffer()
+	if err != nil {
+		log.Printf("Failed to load launch offer: %v", err)
+		return &services.LaunchOffer{}
+	}
+	return offer
 }
 
 func pathID(c *gin.Context) (uint, bool) {
@@ -166,7 +182,17 @@ func handleAdminGetSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load settings"})
 		return
 	}
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, settingsPayload(settings))
+}
+
+// settingsPayload is the platform settings plus how many launch offer places are taken
+func settingsPayload(settings *models.PlatformSettings) gin.H {
+	out := gin.H{}
+	if raw, err := json.Marshal(settings); err == nil {
+		json.Unmarshal(raw, &out)
+	}
+	out["launch_offer_claimed"] = models.CountLaunchFarms(db.DB)
+	return out
 }
 
 func handleAdminUpdateSettings(c *gin.Context) {
@@ -180,7 +206,7 @@ func handleAdminUpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, settingsPayload(settings))
 }
 
 // handleAdminUpdateFarmBilling extends a farm's trial and/or moves it to another plan

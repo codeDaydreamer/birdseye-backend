@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"birdseye-backend/pkg/db"
 	"birdseye-backend/pkg/models"
 )
 
@@ -57,6 +58,21 @@ func SendWelcomeEmail(toEmail, name string) error {
 	first := "Your account is ready."
 	if settings, err := models.GetPlatformSettings(); err == nil && settings.TrialEnabled && settings.TrialDays > 0 {
 		first = fmt.Sprintf("Your account is ready, and your <strong>%d-day free trial</strong> has started.", settings.TrialDays)
+	}
+	// One of the launch offer farms: say what they got and until when
+	var farm models.Farm
+	if err := db.DB.Omit("Subscription", "BillingInfo").
+		Where("launch_offer = ? AND owner_user_id = (SELECT id FROM users WHERE email = ? LIMIT 1)", true, toEmail).
+		First(&farm).Error; err == nil && farm.PaidUntil != nil {
+		plan := "Birdseye"
+		if farm.PlanID != nil {
+			var p models.Plan
+			if db.DB.First(&p, *farm.PlanID).Error == nil {
+				plan = "the " + Esc(p.Name) + " plan"
+			}
+		}
+		first = fmt.Sprintf("Your account is ready. Your farm is one of our launch farms, so you have %s <strong>free until %s</strong>.",
+			plan, farm.PaidUntil.Format("2 January 2006"))
 	}
 	return send(toEmail, subject, Message{
 		Preview:  "Your Birdseye account is ready.",

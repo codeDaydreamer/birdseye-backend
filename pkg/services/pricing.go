@@ -352,6 +352,9 @@ func UpdatePlatformSettings(in models.PlatformSettings) (*models.PlatformSetting
 	if in.TrialDays < 0 || in.TrialDays > 365 || in.GracePeriodDays < 0 || in.GracePeriodDays > 60 {
 		return nil, errors.New("trial must be 0-365 days and grace period 0-60 days")
 	}
+	if in.LaunchOfferSlots < 0 || in.LaunchOfferSlots > 10000 || in.LaunchOfferMonths < 0 || in.LaunchOfferMonths > 60 {
+		return nil, errors.New("launch offer must be 0-10000 places and 0-60 months")
+	}
 	settings, err := models.GetPlatformSettings()
 	if err != nil {
 		return nil, err
@@ -359,6 +362,9 @@ func UpdatePlatformSettings(in models.PlatformSettings) (*models.PlatformSetting
 	settings.TrialEnabled = in.TrialEnabled
 	settings.TrialDays = in.TrialDays
 	settings.GracePeriodDays = in.GracePeriodDays
+	settings.LaunchOfferEnabled = in.LaunchOfferEnabled
+	settings.LaunchOfferSlots = in.LaunchOfferSlots
+	settings.LaunchOfferMonths = in.LaunchOfferMonths
 	if c := strings.ToUpper(strings.TrimSpace(in.Currency)); c != "" {
 		settings.Currency = c
 	}

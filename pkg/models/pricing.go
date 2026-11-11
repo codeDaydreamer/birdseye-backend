@@ -65,7 +65,7 @@ type Plan struct {
 	MaxFlocks    int        `json:"max_flocks"` // flocks on the farm
 	MaxBirds     int        `json:"max_birds"`  // birds across all flocks
 	Features     FeatureSet `gorm:"type:json" json:"features"`
-	IsActive     bool       `gorm:"default:true" json:"is_active"`  // offered to farms
+	IsActive     bool       `gorm:"default:true" json:"is_active"`   // offered to farms
 	IsDefault    bool       `gorm:"default:false" json:"is_default"` // given to new farms for their trial
 	SortOrder    int        `json:"sort_order"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -105,12 +105,19 @@ type PromoCode struct {
 
 // PlatformSettings holds the admin-controlled billing settings (a single row)
 type PlatformSettings struct {
-	ID              uint      `gorm:"primaryKey;autoIncrement" json:"-"`
-	TrialEnabled    bool      `gorm:"default:true" json:"trial_enabled"`
-	TrialDays       int       `gorm:"default:14" json:"trial_days"`
-	GracePeriodDays int       `gorm:"default:2" json:"grace_period_days"` // after paid_until before access stops
-	Currency        string    `gorm:"type:varchar(10);default:KES" json:"currency"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              uint   `gorm:"primaryKey;autoIncrement" json:"-"`
+	TrialEnabled    bool   `gorm:"default:true" json:"trial_enabled"`
+	TrialDays       int    `gorm:"default:14" json:"trial_days"`
+	GracePeriodDays int    `gorm:"default:2" json:"grace_period_days"` // after paid_until before access stops
+	Currency        string `gorm:"type:varchar(10);default:KES" json:"currency"`
+
+	// Launch offer: the first LaunchOfferSlots farms created while it's on get the top plan free for
+	// LaunchOfferMonths (see claimLaunchPlace)
+	LaunchOfferEnabled bool `gorm:"default:false" json:"launch_offer_enabled"`
+	LaunchOfferSlots   int  `gorm:"default:20" json:"launch_offer_slots"`
+	LaunchOfferMonths  int  `gorm:"default:12" json:"launch_offer_months"`
+
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // GetPlatformSettings returns the settings row, creating it with defaults on first use
@@ -118,7 +125,7 @@ func GetPlatformSettings() (*PlatformSettings, error) {
 	var s PlatformSettings
 	err := db.DB.First(&s).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		s = PlatformSettings{TrialEnabled: true, TrialDays: 14, GracePeriodDays: 2, Currency: "KES"}
+		s = PlatformSettings{TrialEnabled: true, TrialDays: 14, GracePeriodDays: 2, Currency: "KES", LaunchOfferSlots: 20, LaunchOfferMonths: 12}
 		err = db.DB.Create(&s).Error
 	}
 	if err != nil {
@@ -134,4 +141,20 @@ func GetDefaultPlan(tx *gorm.DB) *Plan {
 		return nil
 	}
 	return &plan
+}
+
+// GetTopPlan returns the active plan with the highest price, which the launch offer gives away
+func GetTopPlan(tx *gorm.DB) *Plan {
+	var plan Plan
+	if err := tx.Where("is_active = ?", true).Order("monthly_price DESC, yearly_price DESC, sort_order DESC, id DESC").First(&plan).Error; err != nil {
+		return nil
+	}
+	return &plan
+}
+
+// CountLaunchFarms returns how many farms have taken a launch offer place
+func CountLaunchFarms(tx *gorm.DB) int64 {
+	var n int64
+	tx.Model(&Farm{}).Where("launch_offer = ?", true).Count(&n)
+	return n
 }

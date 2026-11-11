@@ -38,6 +38,7 @@ func farmBillingFields(farmID uint) gin.H {
 		"trial_ends_at":              status.TrialEndsAt,
 		"paid_until":                 status.PaidUntil,
 		"needs_subscription_renewal": status.NeedsSubscriptionRenewal,
+		"launch_offer":               status.LaunchOffer,
 		"subscription":               subscription,
 		"billing_info":               billingInfo,
 	}

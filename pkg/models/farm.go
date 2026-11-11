@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Farm roles
@@ -32,6 +33,7 @@ type Farm struct {
 	PlanID        *uint      `json:"plan_id"`
 	BillingPeriod string     `gorm:"type:varchar(10);default:monthly" json:"billing_period"` // monthly | yearly
 	PaidUntil     *time.Time `json:"paid_until"`
+	LaunchOffer   bool       `gorm:"default:false;index" json:"launch_offer"` // one of the free launch places
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 
@@ -81,6 +83,10 @@ func CreateFarmForUser(tx *gorm.DB, user *User) (*Farm, error) {
 	if plan := GetDefaultPlan(tx); plan != nil {
 		farm.PlanID = &plan.ID
 	}
+	if until, plan := claimLaunchPlace(tx, user.ID); until != nil {
+		farm.LaunchOffer, farm.PaidUntil, farm.PaymentStatus = true, until, "paid"
+		farm.PlanID = &plan.ID
+	}
 	if err := tx.Omit("Subscription", "BillingInfo").Create(&farm).Error; err != nil {
 		return nil, err
 	}
@@ -88,4 +94,36 @@ func CreateFarmForUser(tx *gorm.DB, user *User) (*Farm, error) {
 		return nil, err
 	}
 	return &farm, nil
+}
+
+// claimLaunchPlace gives a new farm a launch offer place if the offer is on, places are left, and this is the
+// person's first farm (later farms of theirs don't take a place). The settings row is locked so two signups
+// at once can't both take the last place. Returns when the free period ends and the plan it covers.
+func claimLaunchPlace(tx *gorm.DB, userID uint) (*time.Time, *Plan) {
+	if _, err := GetPlatformSettings(); err != nil { // make sure the row exists before locking it
+		return nil, nil
+	}
+	var settings PlatformSettings
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&settings).Error; err != nil {
+		return nil, nil
+	}
+	if !settings.LaunchOfferEnabled || settings.LaunchOfferSlots <= 0 || settings.LaunchOfferMonths <= 0 {
+		return nil, nil
+	}
+	// Locking reads: a plain SELECT here would read the transaction's snapshot and miss farms that other
+	// signups committed while this one waited for the lock
+	share := clause.Locking{Strength: "SHARE"}
+	var owned int64
+	if tx.Clauses(share).Model(&Farm{}).Where("owner_user_id = ?", userID).Count(&owned); owned > 0 {
+		return nil, nil
+	}
+	if CountLaunchFarms(tx.Clauses(share)) >= int64(settings.LaunchOfferSlots) {
+		return nil, nil
+	}
+	plan := GetTopPlan(tx)
+	if plan == nil {
+		return nil, nil
+	}
+	until := time.Now().AddDate(0, settings.LaunchOfferMonths, 0)
+	return &until, plan
 }

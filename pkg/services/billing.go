@@ -15,6 +15,7 @@ type FarmBillingStatus struct {
 	PaidUntil                *time.Time `json:"paid_until"`
 	BillingPeriod            string     `json:"billing_period"`
 	NeedsSubscriptionRenewal bool       `json:"needs_subscription_renewal"`
+	LaunchOffer              bool       `json:"launch_offer"` // a free launch place; PaidUntil is when it ends
 }
 
 // GetFarmBillingStatus works out whether the farm is on trial, paid up (including the admin's grace
@@ -35,6 +36,7 @@ func GetFarmBillingStatus(farmID uint) (*FarmBillingStatus, error) {
 		IsTrialActive: now.Before(farm.TrialEndsAt),
 		PaidUntil:     farm.PaidUntil,
 		BillingPeriod: farm.BillingPeriod,
+		LaunchOffer:   farm.LaunchOffer,
 	}
 
 	grace := time.Duration(settings.GracePeriodDays) * 24 * time.Hour
@@ -74,4 +76,33 @@ func GetOwnedFarm(userID uint) (*models.Farm, error) {
 		return nil, err
 	}
 	return &farm, nil
+}
+
+// LaunchOffer is the public state of the launch offer, for the marketing site and the signup page
+type LaunchOffer struct {
+	Enabled   bool   `json:"enabled"`
+	Slots     int    `json:"slots"`
+	Remaining int    `json:"remaining"`
+	Months    int    `json:"months"`
+	PlanName  string `json:"plan_name"`
+}
+
+// GetLaunchOffer reports whether the launch offer is on and how many places are left
+func GetLaunchOffer() (*LaunchOffer, error) {
+	settings, err := models.GetPlatformSettings()
+	if err != nil {
+		return nil, err
+	}
+	offer := &LaunchOffer{Enabled: settings.LaunchOfferEnabled, Slots: settings.LaunchOfferSlots, Months: settings.LaunchOfferMonths}
+	if remaining := settings.LaunchOfferSlots - int(models.CountLaunchFarms(db.DB)); remaining > 0 {
+		offer.Remaining = remaining
+	}
+	if plan := models.GetTopPlan(db.DB); plan != nil {
+		offer.PlanName = plan.Name
+	}
+	// Nothing to offer once places run out, or with no plan to give
+	if offer.Remaining == 0 || offer.PlanName == "" {
+		offer.Enabled = false
+	}
+	return offer, nil
 }
