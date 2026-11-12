@@ -11,7 +11,7 @@ import (
 // Every Birdseye email. Names, farm names and reasons are user-entered or come from M-Pesa, so they go
 // through Esc before landing in a line of HTML.
 
-const whatsApp = `<a href="https://wa.me/254792803063" style="color:#1a6b1b;font-weight:600;">WhatsApp us on 0792 803 063</a>`
+const whatsApp = `<a href="https://wa.me/254183626811" style="color:#1a6b1b;font-weight:600;">WhatsApp us on 0183 626 811</a>`
 
 func greeting(name string) string {
 	if f := strings.Fields(name); len(f) > 0 {

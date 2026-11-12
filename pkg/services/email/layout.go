@@ -109,7 +109,7 @@ func Render(b Brand, m Message) (string, string) {
 	// 816 Dynamics footer
 	p(`<tr><td align="center" style="padding:24px 8px 0;font-family:%s;font-size:12px;line-height:1.7;color:#6b7280;">`, font)
 	p(`%s is made by <a href="https://www.816-dynamics.com" style="color:#374151;font-weight:600;text-decoration:none;">816 Dynamics</a>.<br>`, Esc(b.Product))
-	p(`Need help? <a href="mailto:hello@816-dynamics.com" style="color:#6b7280;">hello@816-dynamics.com</a> &middot; <a href="https://wa.me/254792803063" style="color:#6b7280;">WhatsApp +254 792 803 063</a><br>`)
+	p(`Need help? <a href="mailto:hello@816-dynamics.com" style="color:#6b7280;">hello@816-dynamics.com</a> &middot; <a href="https://wa.me/254183626811" style="color:#6b7280;">WhatsApp +254 183 626 811</a><br>`)
 	p(`&copy; %d 816 Dynamics</td></tr>`, time.Now().Year())
 	p(`</table></td></tr></table></body></html>`)
 
@@ -144,6 +144,6 @@ func text(b Brand, m Message) string {
 	if m.Note != "" {
 		w.WriteString(plain(m.Note) + "\n\n")
 	}
-	w.WriteString("--\n" + b.Product + " is made by 816 Dynamics (https://www.816-dynamics.com)\nHelp: hello@816-dynamics.com, WhatsApp +254 792 803 063\n")
+	w.WriteString("--\n" + b.Product + " is made by 816 Dynamics (https://www.816-dynamics.com)\nHelp: hello@816-dynamics.com, WhatsApp +254 183 626 811\n")
 	return w.String()
 }
